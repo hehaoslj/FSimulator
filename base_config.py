@@ -27,10 +27,22 @@ class ConfigObjectEncoder(json.JSONEncoder):
             return self.default(d)
         return obj
 
+def config_object_hook(obj):
+    c = Config();
+    if type(obj) == dict:
+        c.__dict__ = obj
+    return c
+
 def config_dumps(obj):
     return json.dumps(obj, cls = ConfigObjectEncoder, indent = 4, sort_keys = True)
+
+def config_loads(s):
+    return json.loads(s, object_hook=config_object_hook)
 
 class Config(object):
     def dumps(self):
         return config_dumps(self)
-
+    def loads(self, s):
+        self.__dict__( json.loads(s) )
+    def dict(self):
+        return json.loads( self.dumps() )
