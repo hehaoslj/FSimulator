@@ -93,7 +93,12 @@ clib_lflags=['-L{libpath}', '{libpath}/lib{libname}.a', '-lstdc++', '-lm', '-lrt
 
 clib_flags=['-', '<<EOS']
 
-
+if os.name == 'posix':
+    if os.uname()[0] == 'Darwin': #OSX
+        #clang dont support align-double
+        clib_cflags.remove('-malign-double')
+        #clang dont have rt library
+        clib_lflags.remove('-lrt')
 class signal_conf(Config):
     def __init__(self):
         self.conftype ="signal_calc"
@@ -161,7 +166,8 @@ def signal_calc(conf):
         
     #exit(0)
     return
-    
+
+def signal_ffi(conf):    
     ffi = cffi.FFI()
     ffi.cdef(clib_hpp)
     siglib = ffi.dlopen(curpath+'/libsignal_calc.so')
