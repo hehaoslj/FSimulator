@@ -59,6 +59,11 @@ printf("trading instrument:%s\\n", fc->get_trading_instrument().c_str());
 if(argc > 1) 
 {{
     printf("the sin(1)=%lf\\nthe config file is %s\\n",sin(1.0), argv[1]);
+	FILE* f = fopen(argv[1], "rb");
+        char buf[64];
+        fread(buf,64, 1, f);
+        printf("conf file is:%s\\n", buf);
+        fclose(f);
 }} 
 else 
 {{
@@ -89,7 +94,7 @@ clib_lflags=['-L{libpath}', '{libpath}/lib{libname}.a', '-lstdc++', '-lm', '-lrt
 clib_flags=['-', '<<EOS']
 
 
-class signal_conf(object):
+class signal_conf(Config):
     def __init__(self):
         self.conftype ="signal_calc"
         self.libpath="/home/hehao/work/fmtrader/lib/libforecaster"
@@ -100,8 +105,7 @@ class signal_conf(object):
         self.output = Config()
         self.output.path="/home/hehao/data"
 
-if __name__ == "__main__":
-    conf = signal_conf()
+def signal_calc(conf):
     param = conf.dict()
     args = ' '.join( clib_cc + clib_cflags + clib_dllflags + clib_dlflags + clib_flags).format(**param)
     pcs = subprocess.Popen(clib_sh, shell=True,
@@ -155,7 +159,8 @@ if __name__ == "__main__":
     pcs.stdin.close()
     pcs.wait()
         
-    exit(0)
+    #exit(0)
+    return
     
     ffi = cffi.FFI()
     ffi.cdef(clib_hpp)
@@ -163,3 +168,6 @@ if __name__ == "__main__":
     arg = ffi.new('char[]', conf.dumps())
     siglib.signal_calc(arg)
 
+#if __name__ == "__main__":
+#    conf = signal_conf()
+#    signal_calc(conf)
