@@ -7,9 +7,10 @@
 import os
 import sys
 import cffi
-import json
 import subprocess
 import time
+from base_config import Config, config_dumps
+
 
 clib_hpp="""
 void signal_calc(const char* const conf);
@@ -72,6 +73,7 @@ return 0;
 
 curpath = os.path.dirname( os.path.abspath(__file__) )
 #print curpath
+
 clib_sh =['bash']
 
 clib_cc = ['gcc']
@@ -95,30 +97,30 @@ class signal_conf(object):
         self.hpppath=self.libpath
         self.hppname="forecaster.h"
         self.ittype = "hc_0"
-        self.output = {}
-        self.output['path']="/home/hehao/data"
+        self.output = Config()
+        self.output.path="/home/hehao/data"
 
 if __name__ == "__main__":
     conf = signal_conf()
-    #print json.dumps(conf.__dict__)
-    args = ' '.join( clib_cc + clib_cflags + clib_dllflags + clib_dlflags + clib_flags).format(**conf.__dict__)
+    param = conf.dict()
+    args = ' '.join( clib_cc + clib_cflags + clib_dllflags + clib_dlflags + clib_flags).format(**param)
     pcs = subprocess.Popen(clib_sh, shell=True,
         stdin=subprocess.PIPE, close_fds=True)
     print args
     pcs.stdin.write(args)
-    code = clib_cxx.format(**conf.__dict__)
+    code = clib_cxx.format(**param)
     pcs.stdin.write( code )
     pcs.stdin.write( "\nEOS\n")
     pcs.stdin.flush()
+    #time.sleep(1)
     #pcs.stdin.close()
-    time.sleep(1)
-    #
     #pcs.wait()
 
     #pcs = subprocess.Popen(clib_sh, shell=True, 
     #    stdin = subprocess.PIPE, close_fds = True)
 
-    args = ' '.join( clib_cc + clib_cflags + ['signal_calc.o'] + clib_dlflags + clib_lflags + ['-o libsignal_calc.so'] ).format(**conf.__dict__)
+    args = ' '.join( clib_cc + clib_cflags + ['signal_calc.o'] +
+        clib_dlflags + clib_lflags + ['-o libsignal_calc.so'] ).format(**param)
     print args
     pcs.stdin.write(args)
     pcs.stdin.flush()
@@ -128,22 +130,24 @@ if __name__ == "__main__":
     
     pcs = subprocess.Popen(clib_sh, shell=True, 
         stdin = subprocess.PIPE, close_fds=True)
-    args = ' '.join( clib_cc + clib_cflags + clib_appflags + clib_flags).format(**conf.__dict__)
+    args = ' '.join( clib_cc + clib_cflags +
+        clib_appflags + clib_flags).format(**param)
     print args
     pcs.stdin.write(args)
-    code = clib_app.format(**conf.__dict__)
+    code = clib_app.format(**param)
     pcs.stdin.write(code)
     pcs.stdin.write("\nEOS\n")
     pcs.stdin.flush()
     #time.sleep(1)
-    args = ' '.join(clib_cc + clib_cflags + ['signal_calc.app.o'] + clib_lflags + ['-o signal_calc.app']).format(**conf.__dict__)+'\n' 
+    args = ' '.join(clib_cc + clib_cflags + ['signal_calc.app.o'] +
+        clib_lflags + ['-o signal_calc.app']).format(**param)+'\n'
     print args
     pcs.stdin.write(args)
     pcs.stdin.flush()
     #pcs.stdin.close()
     #time.sleep(3)
     f=open("conf.json", "w")
-    f.write( json.dumps(conf.__dict__) )
+    f.write( conf.dumps() )
     f.close()
     print "call signal calc"
     pcs.stdin.write(curpath+ '/signal_calc.app conf.json\n')
@@ -156,6 +160,6 @@ if __name__ == "__main__":
     ffi = cffi.FFI()
     ffi.cdef(clib_hpp)
     siglib = ffi.dlopen(curpath+'/libsignal_calc.so')
-    arg = ffi.new('char[]', json.dumps(conf.__dict__))
+    arg = ffi.new('char[]', conf.dumps())
     siglib.signal_calc(arg)
 

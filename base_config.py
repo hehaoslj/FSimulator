@@ -43,6 +43,6 @@ class Config(object):
     def dumps(self):
         return config_dumps(self)
     def loads(self, s):
-        self.__dict__( json.loads(s) )
+        self.__dict__ = json.loads(s)
     def dict(self):
         return json.loads( self.dumps() )
