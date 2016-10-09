@@ -40,9 +40,18 @@ def config_loads(s):
     return json.loads(s, object_hook=config_object_hook)
 
 class Config(object):
+    def dumpf(self, s):
+        f=open(s, 'w')
+        f.write(self.dumps())
+        f.close()
     def dumps(self):
         return config_dumps(self)
     def loads(self, s):
         self.__dict__ = json.loads(s)
     def dict(self):
         return json.loads( self.dumps() )
+    def loadf(self, s):
+        f=open(s, 'r')
+        ss = f.read()
+        f.close()
+        self.loads(ss)

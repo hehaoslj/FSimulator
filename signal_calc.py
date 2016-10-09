@@ -33,8 +33,12 @@ time_t t = time(NULL);
 localtime_r(&t, &date);
 
 Forecaster *fc  = ForecasterFactory::createForecaster( type, date );
+
 printf("trading instrument:%s\\n", fc->get_trading_instrument().c_str());
 printf("the sin(1)=%lf, conf file is %s\\n",sin(1.0), conf);
+for(int i=0; i<10; ++i) {{
+printf("calc [%d] = %lf\\n", i, fc->get_forecast());
+}}
 
 }}
 
@@ -83,13 +87,13 @@ clib_sh =['bash']
 
 clib_cc = ['gcc']
 
-clib_cflags=[ '-O3','-std=c++11', 
+clib_cflags=[ '-g', '-O3','-std=c++11',
     '-march=native', '-mtune=native', '-malign-double', 
-    '-I"{hpppath}"']
+    '-I"{hpppath}"', '-I/usr/include -I/usr/local/include']
 clib_dlflags=['-fPIC', '-shared']
 clib_dllflags = ['-o', 'signal_calc.o', '-x', 'c++', '-c' ]
 clib_appflags = ['-x', 'c++', '-o', 'signal_calc.app.o', '-c']
-clib_lflags=['-L{libpath}', '{libpath}/lib{libname}.a', '-lstdc++', '-lm', '-lrt', '-lpthread']
+clib_lflags=['-L{libpath}', '{libpath}/lib{libname}.a', '-L/usr/lib', '-L/usr/local/lib', '-ljansson', '-lstdc++', '-lm', '-lrt', '-lpthread']
 
 clib_flags=['-', '<<EOS']
 
@@ -106,7 +110,7 @@ class signal_conf(Config):
         self.libname="forecaster"
         self.hpppath=self.libpath
         self.hppname="forecaster.h"
-        self.ittype = "hc_0"
+        self.insttype = "hc_0"
         self.output = Config()
         self.output.path="/home/hehao/data"
 
@@ -143,11 +147,22 @@ def signal_calc(conf):
         clib_appflags + clib_flags).format(**param)
     print args
     pcs.stdin.write(args)
-    code = clib_app.format(**param)
-    pcs.stdin.write(code)
+    f=open(curpath+"/clibapp.cpp", 'r')
+    code = f.read()
+    f.close()
+    code ='#include "{hppname}"\n'+ code.replace('{', '{{').replace('}','}}')
+    code = code.format(**param)
+    #print "code"
+    #print code
+    pcs.stdin.write('\n'+code)
     pcs.stdin.write("\nEOS\n")
     pcs.stdin.flush()
+    #pcs.stdin.close()
+    #pcs.wait()
+
     #time.sleep(1)
+    #pcs = subprocess.Popen(clib_sh, shell=True,
+    #    stdin = subprocess.PIPE, close_fds=True)
     args = ' '.join(clib_cc + clib_cflags + ['signal_calc.app.o'] +
         clib_lflags + ['-o signal_calc.app']).format(**param)+'\n'
     print args
@@ -158,8 +173,9 @@ def signal_calc(conf):
     f=open("conf.json", "w")
     f.write( conf.dumps() )
     f.close()
+    time.sleep(1)
     print "call signal calc"
-    pcs.stdin.write(curpath+ '/signal_calc.app conf.json\n')
+    pcs.stdin.write('\n' + curpath+ '/signal_calc.app conf.json\n')
     pcs.stdin.flush()
     pcs.stdin.close()
     pcs.wait()
@@ -177,3 +193,9 @@ def signal_ffi(conf):
 #if __name__ == "__main__":
 #    conf = signal_conf()
 #    signal_calc(conf)
+
+
+def test():
+    c=signal_conf()
+    c.loadf('conf.json')
+    signal_calc(c)
