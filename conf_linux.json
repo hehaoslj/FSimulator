@@ -1,0 +1,48 @@
+{
+    "conftype": "signal_calc", 
+    "insttype": "rb_0",
+    "output": {
+        "begindate": "2016-7-1", 
+        "enddate": "2016-09-1", 
+        "path": "/home/hehao/data"
+    },
+    "ssh":{
+        "host":"192.168.56.101",
+        "port":22,
+        "username":"hehao",
+        "password":"123",
+        "authtype":0,
+        "root":"/home/hehao/hwork/fsimulator"
+    },
+    "builder":{
+        "cc":"gcc",
+        "cflags":["-O3","-std=c++11", "-fPIC",  "-shared",
+            "-march=native", "-mtune=native", "-malign-double",
+            "-I/usr/include", "-I/usr/local/include"],
+        "lflags":["-L/usr/lib", "-L/usr/local/lib", "-ljansson",
+            "-lstdc++", "-lm", "-lrt", "-lpthread"],
+        "aflags":[],
+        "shell":"bash"
+    },
+    "signal_app":{
+        "hppname": "forecaster.h",
+        "hpppath": "/home/hehao/hwork/lib/libforecaster",
+        "appname": "signal_app",
+        "libname": "forecaster",
+        "libpath": "/home/hehao/hwork/lib/libforecaster"
+    }
+    ,"signal_calc":{
+        "datpath":"/home/hehao/hwork/shif",
+        "files":["package_2016-10-21__08-50-01.cap"],
+        "pattern":"hehao__%type-%date-%time.csv",
+        "outpath":"/home/hehao/hwork/model"
+    }
+    ,"trading_calc":{
+        "fee_rate_open":0.00005,
+        "fee_vol_open":0.0,
+        "fee_rate_close_t":0.00005,
+        "fee_rate_close_y":0.0,
+        "fee_vol_close_t":0.00005,
+        "fee_vol_close_y":0.0
+    }
+}

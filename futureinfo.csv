@@ -1,0 +1,14 @@
+Instrument_Type,ticksize,multiple
+cu,10,5
+au,0.05,1000
+al,5,5
+fu,1,50
+zn,5,5
+rb,1,10
+ru,5,10
+pb,5,5
+bu,2,10
+ag,1,15
+hc,1,10
+ni,10,1
+sn,10,1

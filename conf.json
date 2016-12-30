@@ -1,0 +1,21 @@
+{
+    "conftype": "signal_calc", 
+    "hppname": "forecaster.h", 
+    "hpppath": "/home/hehao/work/fmtrader/lib/libforecaster", 
+    "insttype": "rb_0", 
+    "libname": "forecaster", 
+    "libpath": "/home/hehao/hwork/lib/forecast_lib", 
+    "output": {
+        "begindate": "2016-7-1", 
+        "enddate": "2016-09-1", 
+        "path": "/home/hehao/data"
+    }, 
+    "ssh": {
+        "authtype": 0, 
+        "host": "192.168.56.101", 
+        "password": "123", 
+        "port": 22, 
+        "root": "/home/hehao/hwork/fsimulator", 
+        "username": "hehao"
+    }
+}

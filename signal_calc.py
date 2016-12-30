@@ -87,7 +87,7 @@ clib_sh =['bash']
 
 clib_cc = ['gcc']
 
-clib_cflags=[ '-g', '-O3','-std=c++11',
+clib_cflags=[ '-g', '-O3','-std=c++11', '-fPIC',  '-shared',
     '-march=native', '-mtune=native', '-malign-double', 
     '-I"{hpppath}"', '-I/usr/include -I/usr/local/include']
 clib_dlflags=['-fPIC', '-shared']
@@ -115,16 +115,17 @@ class signal_conf(Config):
         self.output.path="/home/hehao/data"
 
 def signal_calc(conf):
+
     param = conf.dict()
-    args = ' '.join( clib_cc + clib_cflags + clib_dllflags + clib_dlflags + clib_flags).format(**param)
-    pcs = subprocess.Popen(clib_sh, shell=True,
-        stdin=subprocess.PIPE, close_fds=True)
-    print args
-    pcs.stdin.write(args)
-    code = clib_cxx.format(**param)
-    pcs.stdin.write( code )
-    pcs.stdin.write( "\nEOS\n")
-    pcs.stdin.flush()
+#    args = ' '.join( clib_cc + clib_cflags + clib_dllflags + clib_dlflags + clib_flags).format(**param)
+#    pcs = subprocess.Popen(clib_sh, shell=True,
+#        stdin=subprocess.PIPE, close_fds=True)
+#    print args
+#    pcs.stdin.write(args)
+#    code = clib_cxx.format(**param)
+#    pcs.stdin.write( code )
+#    pcs.stdin.write( "\nEOS\n")
+#    pcs.stdin.flush()
     #time.sleep(1)
     #pcs.stdin.close()
     #pcs.wait()
@@ -132,13 +133,13 @@ def signal_calc(conf):
     #pcs = subprocess.Popen(clib_sh, shell=True, 
     #    stdin = subprocess.PIPE, close_fds = True)
 
-    args = ' '.join( clib_cc + clib_cflags + ['signal_calc.o'] +
-        clib_dlflags + clib_lflags + ['-o libsignal_calc.so'] ).format(**param)
-    print args
-    pcs.stdin.write(args)
-    pcs.stdin.flush()
-    pcs.stdin.close()
-    pcs.wait()
+#    args = ' '.join( clib_cc + clib_cflags + ['signal_calc.o'] +
+#        clib_dlflags + clib_lflags + ['-o libsignal_calc.so'] ).format(**param)
+#    print args
+#    pcs.stdin.write(args)
+#    pcs.stdin.flush()
+#    pcs.stdin.close()
+#    pcs.wait()
     #sys.stdout.write(code)
     
     pcs = subprocess.Popen(clib_sh, shell=True, 
@@ -194,8 +195,58 @@ def signal_ffi(conf):
 #    conf = signal_conf()
 #    signal_calc(conf)
 
-
+#rb2_0(rb02, rb01) ni2_0 ru2_0 zn2_0 rb_0
 def test():
     c=signal_conf()
-    c.loadf('conf.json')
+    c.loadf('conf_linux.json')
     signal_calc(c)
+
+def test_dl():
+    param=signal_conf()
+    param.loadf('conf_linux.json')
+    cmd = ' '.join(clib_cc + clib_cflags +clib_dllflags).format(**param.dict())
+    cmd += " clibapp.cpp"
+    pcs = subprocess.Popen(cmd, shell=True,
+        stdout = subprocess.PIPE, close_fds=True)
+    print pcs.stdout.read()
+
+def test_ffi():
+    ffi = cffi.FFI()
+    with open('clibapp.h', 'r') as f:
+        for ln in f.readlines():
+            if ln[0] == "#":
+                continue
+            ffi.cdef(ln)
+    #ffi.cdef('#include "clibapp.h"')
+    siglib = ffi.dlopen(curpath + "/signal_calc.app")
+    print siglib.fc_create
+    #arg = ffi.new('char[]', "conf_linux.json")
+    #args = ffi.new('char*[2]', (arg,)*2)
+    #siglib.main(2, args)
+    fc = siglib.fc_create("rb_0")
+    siglib.fc_delete(fc)
+
+client=None
+import paramiko
+
+def test_ssh():
+    global client
+    client = paramiko.SSHClient()
+    client.load_system_host_keys()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect("192.168.56.101", 22, "hehao", "123")
+    #chan = client.invoke_shell()
+    #print(repr(client.get_transport()))
+    chan = client.invoke_shell('vt102')
+    time.sleep(1);
+    chan.setblocking(0)
+    chan.sendall('ls\n')
+    print chan.recv(128)
+    return chan
+
+def test():
+    import autotools
+    autotools.test_ffi('/home/hehao/hwork/fsimulator/conf_linux.json')
+
+if __name__ == "__main__":
+    test()

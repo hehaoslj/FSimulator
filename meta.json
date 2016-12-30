@@ -1,0 +1,58 @@
+{
+    "type":"meta_desc",
+    "name":"name of the configure object",
+    "next":"the sub configure object",
+    "comment":"the meta description of configure objects with their properties' type, desc, default, required or/not",
+    "configure":{
+        "comment":"configure object",
+        "author":["string","author name", "", false],
+        "date":["date", "the last modified date yyyy-mm-dd", "", false],
+        "time":["time", "the last modified time hh-mm-ss", "", false]
+    },
+    "fileset":{
+        "comment":"chose a set of data file",
+        "filter":["string", "filter of file name", "*.*", false],
+        "files":["array-file", "file set", "", false]
+    },
+    "ssh":{
+        "comment":"ssh to remote host",
+        "host":["string", "the host ip/name", "", true],
+        "port":["integer", "the port of ssh", 22, false],
+        "username":["string", "login name", "", true],
+        "password":["string", "login password", "", true],
+        "root":["string", "the working directory", "", false],
+        "authtype":["integer", "the auth type", 0, false]
+    },
+    "signal_app": {
+        "comment":"compile and generate signal app",
+        "hpppath":["string", "header path", "", true],
+        "libpath":["string", "library path", "", true],
+        "hppname":["array-string", "headers", [], true],
+        "libname":["array-string", "libraries", [], true],
+        "appname":["string", "name of app", "signal_calc.app", false]
+    },
+    "signal_calc":{
+        "comment":"calculate signals",
+        "datapath":["string", "the path of data", "", true],
+        "begindate":["string", "the date of begin calc", "", true],
+        "enddate":["string", "the date of end calc", "", true],
+        "outpath":["string", "the output path", "", true]
+    },
+    "xl_plot": {
+        "comment":"plot excel data with matplotlib",
+        "file":["file", "the full path of excel file", "", true],
+        "sheet":["string", "the name of sheet", "", true],
+        "cols":["array-integer","the cols to draw", [], true],
+        "colheader":["integer", "the header column", 1, false]
+    },
+    "builder":{
+
+            "comment":"C/C++ builder",
+            "cc":["string", "compiler", "gcc", true],
+            "cflags":["array-string", "compile flags", [], false],
+            "lflags":["array-string", "link flags", [], false],
+            "aflags":["array-string", "app flags", [], false],
+            "shell":["string", "shell", "bash", true]
+    }
+
+}

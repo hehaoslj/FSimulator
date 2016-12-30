@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/file">
+        <file>meta.json</file>
+    </qresource>
+    <qresource prefix="/ico">
+        <file alias="flatastic2">res/flatastic_part_2_full.png</file>
+    </qresource>
+</RCC>
