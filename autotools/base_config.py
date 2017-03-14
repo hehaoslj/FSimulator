@@ -40,6 +40,39 @@ def config_loads(s):
     return json.loads(s, object_hook=config_object_hook)
 
 class Config(object):
+    def __init__(self, *args):
+        if len(args) == 2 and type(args[0]) in (list,tuple):
+            self._itemNames=args[0]
+            self._itemValues=args[1]
+    def setv(self, values):
+        self._itemValues=values
+    def setn(self, names):
+        self._itemNames=names
+
+    #list method
+    def __getitem__(self, idx):
+        return self._itemValues[idx]
+    def __len__(self):
+        return len(self._itemValues)
+    #dict method
+    def __getattr__(self, name):
+        if name in self._itemNames:
+            return self._itemValues[self._itemNames.index(name)]
+        else:
+            # Default behaviour
+            return object.__getattribute__(self, name)
+    def __enter__(self):
+        #print "__enter__ method"
+        return self  # 返回对象给as后的变量
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        #print "__exit__ method"
+        if exc_traceback is None:
+            #print "Exited without Exception"
+            return True
+        else:
+            #print "Exited with Exception"
+            return False
+
     def dumpf(self, s):
         f=open(s, 'w')
         f.write(self.dumps())
