@@ -30,8 +30,13 @@
 # Cmake Template files
 CMakeLists.txt.user
 
-#Python compiled files
-*.pyc
+# Python Compiled files
 *.pyo
+*.pyc
 
+# Backup
 *.bak
+
+# Internal build folder
+build
+dist
