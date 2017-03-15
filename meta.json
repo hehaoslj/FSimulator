@@ -36,7 +36,8 @@
         "datapath":["string", "the path of data", "", true],
         "begindate":["string", "the date of begin calc", "", true],
         "enddate":["string", "the date of end calc", "", true],
-        "outpath":["string", "the output path", "", true]
+        "outpath":["string", "the output path", "", true],
+        "duration":["int", "the period to verify forecaster "]
     },
     "xl_plot": {
         "comment":"plot excel data with matplotlib",

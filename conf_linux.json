@@ -32,10 +32,11 @@
         "libpath": "/home/hehao/hwork/lib/libforecaster"
     }
     ,"signal_calc":{
-        "datpath":"/home/hehao/hwork/shif",
-        "files":["package_2016-10-21__08-50-01.cap"],
+        "datpath":"/dev/shm",
+        "files":["package_2016-10-24__08-50-01.cap"],
         "pattern":"hehao__%type-%date-%time.csv",
-        "outpath":"/home/hehao/hwork/model"
+        "outpath":"/dev/shm",
+        "duration":5
     }
     ,"trading_calc":{
         "fee_rate_open":0.00005,
