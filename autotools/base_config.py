@@ -42,8 +42,8 @@ def config_loads(s):
 class Config(object):
     def __init__(self, *args):
         if len(args) == 2 and type(args[0]) in (list,tuple):
-            self._itemNames=args[0]
-            self._itemValues=args[1]
+            self._itemNames=list(args[0])
+            self._itemValues=list(args[1])
     def setv(self, values):
         self._itemValues=values
     def setn(self, names):
