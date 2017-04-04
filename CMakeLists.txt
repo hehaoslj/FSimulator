@@ -1,13 +1,24 @@
-project(forecaster)
 cmake_minimum_required(VERSION 2.8)
 
+project(forecaster)
+
+set(CMAKE_VERBOSE_MAKEFILE off)
+
+
+# Find includes in corresponding build directories
+set(CMAKE_INCLUDE_CURRENT_DIR ON)
+
+# Set osx rpath
 set(MACOSX_RPATH "@executable_path")
+
+# Use the compile definitions defined in the Qt 5 Widgets module
+#add_definitions
 
 add_library(plugin_libs SHARED IMPORTED)
 
 list(APPEND clean_extra_files "")
 
-set(CMAKE_VERBOSE_MAKEFILE off)
+
 
 IF( ${CMAKE_CXX_COMPILER} MATCHES  "[cg][+][+]")
     MESSAGE("G++ ")
@@ -16,7 +27,7 @@ IF( ${CMAKE_CXX_COMPILER} MATCHES  "[cg][+][+]")
     set(CMAKE_C_FLAGS_DEBUG "-g3")
     set(CMAKE_C_FLAGS_RELEASE "-O3")
     set(CMAKE_CXX_FLAGS "-Wall  -std=c++11")
-    set(CMAKE_C_FLAGS   "-Wall  -std=c99")
+    set(CMAKE_C_FLAGS   "-Wall  -std=gnu99")
     set_property(TARGET plugin_libs PROPERTY IMPORTED_LOCATION
         "${CMAKE_BINARY_DIR}/libguavatask-1.0.so")
     list(APPEND clean_extra_files
@@ -43,20 +54,62 @@ FIND_PATH(jansson_header jansson.h)
 FIND_LIBRARY(libforecaster_static NAMES forecaster
     PATHS ../fmtrader/lib/libforecaster)
 
+#LIB EAL
+FIND_PATH(eal_header lmice_trace.h
+    PATHS ../fmtrader/eal)
+LIST(APPEND eal_SRCS  ../fmtrader/eal/lmice_ring.c
+    ../fmtrader/eal/lmice_trace.c
+    ../fmtrader/eal/lmice_eal_shm.c
+    ../fmtrader/eal/lmice_eal_hash.c
+    ../fmtrader/eal/lmice_eal_spinlock.c
+    ../fmtrader/eal/lmice_eal_malloc.c
+    ../fmtrader/eal/lmice_eal_event.c
+    ../fmtrader/eal/lmice_eal_time.c
+    ../fmtrader/eal/lmice_core.c
+    ../fmtrader/eal/lmice_eal_aio.c
+    ../fmtrader/eal/lmice_eal_thread.c
+    ../fmtrader/eal/lmice_bloomfilter.c
+    )
 
-#MESSAGE(jansson path is ${jansson_header})
+#Shared EAL Library
+#ADD_LIBRARY(eal SHARED ${EAL_SRCS})
+#Static EAL Library
+ADD_LIBRARY(eal_static STATIC ${eal_SRCS})
 
+SET_TARGET_PROPERTIES(eal_static PROPERTIES OUTPUT_NAME "eal")
+SET_TARGET_PROPERTIES(eal_static PROPERTIES CLEAN_DIRECT_OUTPUT 1)
+#SET_TARGET_PROPERTIES(eal_static PROPERTIES VERSION 1.2 SOVERSION 1)
+
+#MESSAGE(jansson path is ${eal_header})
+INCLUDE_DIRECTORIES(${jansson_header})
+INCLUDE_DIRECTORIES(${eal_header})
 #LIST(REMOVE_ITEM forecaster_SRCS clibapp.cpp)
 #Shared EAL Library
 #ADD_LIBRARY(eal SHARED ${EAL_SRCS})
 #Static EAL Library
 #ADD_LIBRARY(forecaster STATIC ${forecaster_SRCS})
-LIST(APPEND py_src signal_calc.py base_config.py  clibapp.cpp README.md testlib.py)
+LIST(APPEND py_src conf_linux.json meta.json)
+AUX_SOURCE_DIRECTORY(autotools/opencl py_src)
+AUX_SOURCE_DIRECTORY(autotools py_src)
+LIST(APPEND py_src autotools/base_config.py
+    autotools/forecasterhandle.py
+    autotools/forecastertask.py
+    autotools/guavahandle.py
+    autotools/guavatask.py
+    autotools/optimizehandle.py
+    autotools/optimizetask.py
+    autotools/testpy.py
+    autotools/clibdef.h
 
+    autotools/opencl/signalcalc_tmpl.cl
+    autotools/opencl/signalcalchandle.py
+    autotools/opencl/signalcalctask.py
+    )
 add_custom_target(py_files ALL SOURCES ${py_src})
 
 
-set(CMAKE_INCLUDE_CURRENT_DIR ON)
+
+
 #set(CMAKE_AUTOMOC ON)
 
 #Qt Property
@@ -77,6 +130,7 @@ set(CMAKE_INCLUDE_CURRENT_DIR ON)
 #qt5_use_modules(monitor Core Widgets Network Gui)
 #target_link_libraries(monitor Qt5::Widgets Qt5::Core Qt5::Network Qt5::Gui PythonLibs)
 
+add_custom_target(GenOpenCL ALL)
 add_custom_target(GenCFFI ALL)
 add_custom_command(
     TARGET GenCFFI
@@ -112,39 +166,74 @@ add_executable(testlib
 add_dependencies(testlib GenCFFI)
 #add_dependencies(testlib forecastertask)
 target_link_libraries(testlib plugin_libs)
+target_link_libraries(testlib -L${CMAKE_BINARY_DIR}  signalcalctask-1.0)
+
+add_custom_command(
+    TARGET testlib
+    PRE_BUILD
+    DEPENDS GenCFFI
+    COMMAND pypy -O -OO \"${CMAKE_SOURCE_DIR}/autotools/opencl/signalcalctask.py\"
+    COMMENT "Compiling signalcalc-opencl python-- ${CMAKE_SOURCE_DIR}/autotools/opencl/signalcalctask.py"
+)
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
-INCLUDE_DIRECTORIES(../fmtrader/lib/libforecaster ${jansson_header} )
-LIST(APPEND forecaster_SRCS  forecaster.cpp)
-LIST(APPEND forecaster_SRCS autotools/clibapp.cpp)
+    INCLUDE_DIRECTORIES(../fmtrader/lib/libforecaster ${jansson_header} )
+    LIST(APPEND forecaster_SRCS  forecaster.cpp)
+    LIST(APPEND forecaster_SRCS autotools/clibapp.cpp)
 
-ADD_LIBRARY(forecaster SHARED ${forecaster_SRCS})
-target_link_libraries(forecaster ${jansson_libs} ${libforecaster_static})
+    ADD_LIBRARY(forecaster SHARED ${forecaster_SRCS})
+    target_link_libraries(forecaster ${jansson_libs} ${libforecaster_static})
 
-target_link_libraries(testlib -L${CMAKE_BINARY_DIR}  forecastertask-1.0)
-target_link_libraries(testlib -L${CMAKE_BINARY_DIR}  optimizetask-1.0)
+    target_link_libraries(testlib -L${CMAKE_BINARY_DIR}  forecastertask-1.0)
+    target_link_libraries(testlib -L${CMAKE_BINARY_DIR}  optimizetask-1.0)
 
-add_custom_command(
-    TARGET testlib
-    PRE_BUILD
-    DEPENDS forecaster
-    COMMAND pypy -O -OO \"${CMAKE_SOURCE_DIR}/autotools/forecastertask.py\"
-    COMMENT "Compiling Forecaster python-- ${CMAKE_SOURCE_DIR}/testlib.py"
-)
+    add_custom_command(
+        TARGET testlib
+        PRE_BUILD
+        DEPENDS forecaster
+        COMMAND pypy -O -OO \"${CMAKE_SOURCE_DIR}/autotools/forecastertask.py\"
+        COMMENT "Compiling Forecaster python-- ${CMAKE_SOURCE_DIR}/testlib.py"
+    )
 
-add_custom_command(
-    TARGET testlib
-    PRE_BUILD
-    DEPENDS forecaster
-    COMMAND python -O -OO \"${CMAKE_SOURCE_DIR}/autotools/optimizetask.py\"
-    COMMENT "Compiling Forecaster python-- ${CMAKE_SOURCE_DIR}/testlib.py"
-)
+    add_custom_command(
+        TARGET testlib
+        PRE_BUILD
+        DEPENDS forecaster
+        COMMAND python -O -OO \"${CMAKE_SOURCE_DIR}/autotools/optimizetask.py\"
+        COMMENT "Compiling Forecaster python-- ${CMAKE_SOURCE_DIR}/testlib.py"
+    )
 
 
 
 ELSE(MATCHES "Darwin")
 message("Forecaster Dose NOT support OSX")
+#OpenCL
+
+    find_package(OpenCL REQUIRED)
+
+    INCLUDE_DIRECTORIES(${OpenCL_INCLUDE_DIRS})
+
+    LINK_DIRECTORIES(${OpenCL_LIBRARY})
+
+    message("${OpenCL_LIBRARIES}")
+    add_custom_command(
+        TARGET GenOpenCL
+
+        COMMAND /System/Library/Frameworks/OpenCL.framework/Libraries/openclc -c -cl-std=CL1.2 -cl-auto-vectorize-enable -O3 \"${CMAKE_SOURCE_DIR}/autotools/opencl/mykernel.cl\"
+        COMMENT "Compiling opencl"
+    )
+
+    LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c)
+    add_executable(myopencl ${myopencl_src})
+    target_link_libraries(myopencl ${OpenCL_LIBRARIES} ${jansson_libs} eal_static)
+
+    add_custom_command(
+        TARGET myopencl
+        POST_BUILD
+        COMMAND cp -r \"${CMAKE_SOURCE_DIR}/autotools/opencl/subsignal_trade.cl\" ${CMAKE_BINARY_DIR}
+        COMMENT "Copying opencl script"
+    )
 
 ELSE(MATCHES "Windows")
 
@@ -156,4 +245,3 @@ add_custom_command(
     COMMAND cp -r \"${CMAKE_SOURCE_DIR}/autotools\" ${CMAKE_BINARY_DIR}
     COMMENT "Copying autotools"
 )
-

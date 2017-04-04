@@ -32,10 +32,10 @@
         "libpath": "/home/hehao/hwork/lib/libforecaster"
     }
     ,"signal_calc":{
-        "datpath":"/dev/shm",
+        "datpath":"/home/hehao/hwork/shif",
         "files":["package_2016-10-24__08-50-01.cap"],
-        "pattern":"hehao__%type-%date-%time.csv",
-        "outpath":"/dev/shm",
+        "pattern":"hehao__%type-%date-%time",
+        "outpath":"/home/hehao/hwork",
         "duration":5
     }
     ,"trading_calc":{
@@ -45,5 +45,16 @@
         "fee_rate_close_y":0.0,
         "fee_vol_close_t":0.00005,
         "fee_vol_close_y":0.0
+    }
+    ,"optimizer":{
+        "seed":3312,
+        "trial":1024000,
+        "pos":0,
+        "group":102400,
+        "aligned":4,
+        "clfile":"subsignal_trade.cl",
+        "clfunc":"signal_simulation",
+        "clreps":["/home/hehao/hwork", "/Users/hehao/work"],
+        "clvec":16
     }
 }

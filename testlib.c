@@ -26,6 +26,8 @@ extern int forecastertask(const char*);
 
 extern void optimizetask(const char*);
 
+extern const char* genopencltask(const char*);
+
 int main(int argc, char* argv[])
 {
 //    double rt = 0;
@@ -53,10 +55,13 @@ int main(int argc, char* argv[])
     //guavatask(argv[1]);
 //    if(argc > 2)
 //
+
     if(argc >1) {
-        forecastertask(argv[1]);
-        optimizetask(argv[1]);
+//        forecastertask(argv[1]);
+//        optimizetask(argv[1]);
+        printf("%s\n", genopencltask(argv[1]) );
     }
+
     //if(argc == 2)
      //   fc_calc(argv[1]);
 //    forecaster_t fc;
