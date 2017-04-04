@@ -370,6 +370,31 @@ struct st_order_state {
     int sound_ask_count;
     int sound_bid_count;
 };
+
+inline void write_signalindex(const in_forecaster_t* in, std::string& name)
+{
+
+    printf("index file name: %s\n", name.c_str());
+    FILE* fidx = fopen(name.c_str(), "w");
+    fprintf(fidx, "{\n"
+            "\"size\":%ld,\n"
+            "\"names\":[\n",
+            in->subsignals.size());
+    size_t i;
+    if(in->subsignals.size()>0)
+    {
+        fprintf(fidx, "\t\"%s\"\n",
+                in->subsignals[0].c_str());
+    }
+    for(i=1;i<in->subsignals.size();++i)
+    {
+        fprintf(fidx, "\t,\"%s\"\n",
+                in->subsignals[i].c_str());
+    }
+    fprintf(fidx, "]\n}\n");
+    fclose(fidx);
+}
+
 inline void write_instrument(FILE* fp, const ChinaL1Msg& msg_data)
 {
     /* Total 68 bytes:  instrument -- 8 bytes  data -- 60 bytes
@@ -378,8 +403,8 @@ inline void write_instrument(FILE* fp, const ChinaL1Msg& msg_data)
             *reinterpret_cast<const Dummy_ChinaL1Msg*>(&msg_data);
     int64_t inst = 0;
     memcpy(&inst, msg_dt.m_inst.c_str(), msg_dt.m_inst.size());
-    fwrite(&inst, 8,1, fp);
-    fwrite(&(msg_dt.m_time_micro), 4, 15, fp);
+    fwrite(&inst, 8,1, fp);                   //    8 bytes
+    fwrite(&(msg_dt.m_time_micro), 8, 8, fp); //    64bytes
 }
 
 inline void write_subsignals(in_forecaster_t* in, const ChinaL1Msg& msg_data)
@@ -424,45 +449,53 @@ inline void write_subsignals(in_forecaster_t* in, const ChinaL1Msg& msg_data)
     fprintf(fp, "\n");
 
     //Write forecast
-    if(in->forecast.size() > in->duration)
-    {
-        double maxmid =0;
-        double minmid = 0;
-        for(int i = in->duration; i>0;--i)
-        {
-            auto a = (in->askl1.end() -i);
-            auto b = (in->bidl1.end() -i);
-            double mid = (*a + *b)/2;
-            if(maxmid < mid || maxmid == 0)
-                maxmid = mid;
-            if(minmid > mid || minmid == 0)
-                minmid = mid;
-        }
-        auto f = in->forecast.end() - in->duration;
-        if(f->second & (1<<3))
-        {
-            //Max mid
-            fprintf(in->fcfp, "%16.014lf\n", maxmid);
-            if(f->first - maxmid > 0)
-                printf("MAX:MID, FC CRI\n%16.014lf %16.014lf\n",
-                       f->first, maxmid);
-        } else {
-            //Min mid
-            fprintf(in->fcfp, "%16.014lf\n", minmid);
-            if(f->first - minmid < 0)
-                printf("MIN:MID, FC CRI\n%16.014lf %16.014lf\n",
-                       f->first, minmid);
-        }
+    fwrite(&in->sub_sigs[0], 1, sizeof(double)*rsize, in->fcfp);
 
-    }
+//    if(in->forecast.size() > in->duration)
+//    {
+//        double maxmid =0;
+//        double minmid = 0;
+//        for(int i = in->duration; i>0;--i)
+//        {
+//            auto a = (in->askl1.end() -i);
+//            auto b = (in->bidl1.end() -i);
+//            double mid = (*a + *b)/2;
+//            if(maxmid < mid || maxmid == 0)
+//                maxmid = mid;
+//            if(minmid > mid || minmid == 0)
+//                minmid = mid;
+//        }
+//        auto f = in->forecast.end() - in->duration;
+//        double dis1 = maxmid - f->first;
+//        double dis2 = f->first - minmid;
+//        if(dis1 > dis2)
+//            fprintf(in->fcfp, "%16.014lf\n", (maxmid / f->first) - 1.0 );
+//        else
+//            fprintf(in->fcfp, "%16.014lf\n", (minmid / f->first) - 1.0 );
+//        //printf("%16.014lf %16.014lf %16.014lf %16.014lf\n",
+//        //       dis1,dis2, *(in->askl1.end()-1), *(in->bidl1.end()-1) );
+////        if(f->second & (1<<3))
+////        {
+////            //Max mid
+////            fprintf(in->fcfp, "%16.014lf\n", (maxmid / f->first) - 1.0 );
+////            //if(f->first - maxmid > 0)
+////                printf("MAX:MID, FC CRI\n%16.014lf %16.014lf\n",
+////                       f->first, maxmid);
+////        } else {
+////            //Min mid
+////            fprintf(in->fcfp, "%16.014lf\n", (minmid / f->first) - 1.0 );
+////            //if(f->first - minmid < 0)
+////                printf("MIN:MID, FC CRI\n%16.014lf %16.014lf\n",
+////                       f->first, minmid);
+////        }
+
+//    }
 
 
 }
 
 inline void proc_l1msg(in_forecaster_t* in, const ChinaL1Msg& msg_data)
 {
-    //Save inst
-    write_instrument(in->instfp, msg_data);
 
     //Calc signals
     in->fc->update(msg_data);
@@ -470,8 +503,12 @@ inline void proc_l1msg(in_forecaster_t* in, const ChinaL1Msg& msg_data)
     if(!in->is_trading)
         return;
 
-    write_subsignals(in, msg_data);
 
+    //Save ChinaL1Msg
+    write_instrument(in->instfp, msg_data);
+
+    //Save signals
+    write_subsignals(in, msg_data);
 }
 
 inline void proc_guava1(in_forecaster_t* in, char* buf, FILE* fp) {
@@ -699,6 +736,11 @@ int fc_calc_subsignals(forecaster_t fc, const char* dtfile, const char* outpath,
         name.replace(name.end() -4, name.end(), ".fc");
         printf("forecast file name: %s\n", name.c_str());
         in->fcfp = fopen(name.c_str(), "w");
+
+        /// subsignal index file
+        name.replace(name.end()-3, name.end(), ".idx");
+        write_signalindex(in, name);
+
     }
 
     const char* p = strstr(dtfile, "guava2");
@@ -714,6 +756,7 @@ int fc_calc_subsignals(forecaster_t fc, const char* dtfile, const char* outpath,
     fclose(fp);
     fclose(in->sigsfp);
     fclose(in->instfp);
+    fclose(in->fcfp);
     return 0;
 }
 
@@ -1037,6 +1080,8 @@ int fc_calc(const char* cfg)
     const char* value = NULL;
     forecaster_t fc = NULL;
 
+    Dummy_ChinaL1Msg* pd=0;
+    printf("sizeof Dummy_ChinaL1Msg = %llu, %llu\n",sizeof(Dummy_ChinaL1Msg), &(pd->m_limit_down));
 
     /** Load json conf */
     root = json_load_file(cfg, 0, &err);

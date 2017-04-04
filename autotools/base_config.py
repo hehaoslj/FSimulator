@@ -31,6 +31,7 @@ def config_object_hook(obj):
     c = Config();
     if type(obj) == dict:
         c.__dict__ = obj
+        c.__list__ = c.__dict__.keys()
     return c
 
 def config_dumps(obj):
@@ -42,22 +43,34 @@ def config_loads(s):
 class Config(object):
     def __init__(self, *args):
         if len(args) == 2 and type(args[0]) in (list,tuple):
-            self._itemNames=list(args[0])
-            self._itemValues=list(args[1])
+            self.__dict__ = dict( zip( list(args[0]), list(args[1]) ) )
+            self.__list__ = list(args[0])
+        else:
+            self.__dict__ = dict()
+            self.__list__ = list()
     def setv(self, values):
-        self._itemValues=values
+        idx=0
+        max_idx = len(values)
+        for key in self.__list__:
+            if max_idx <= idx:
+                break
+            self.__dict__[key] = values[idx]
+            idx+=1
+
     def setn(self, names):
-        self._itemNames=names
+        self.__list__ = list(names)
+        #print self.__list__
 
     #list method
     def __getitem__(self, idx):
-        return self._itemValues[idx]
+        key = self.__list__[idx]
+        return self.__dict__[key]
     def __len__(self):
-        return len(self._itemValues)
+        return len(self.__dict__)
     #dict method
     def __getattr__(self, name):
-        if name in self._itemNames:
-            return self._itemValues[self._itemNames.index(name)]
+        if name in self.__dict__:
+            return self.__dict__[name]
         else:
             # Default behaviour
             return object.__getattribute__(self, name)
@@ -81,6 +94,7 @@ class Config(object):
         return config_dumps(self)
     def loads(self, s):
         self.__dict__ = json.loads(s)
+        self.__list__ = self.__dict__.keys()
     def dict(self):
         return json.loads( self.dumps() )
     def loadf(self, s):

@@ -11,6 +11,7 @@ import autotools
 from autotools.base_config import Config
 
 import numpy as np
+import struct
 
 #void optimizetask(const char*);
 def optimizetask(fn):
@@ -26,18 +27,19 @@ def optimizetask(fn):
     time = cfg.signal_calc.files[0][pos+2    :pos+2+8]
     tp = cfg.insttype
     #print pos,date, time, tp
-    fc = os.path.join(cfg.signal_calc.datpath,
+    fc = os.path.join(cfg.signal_calc.outpath,
     cfg.signal_calc.pattern.replace('%type', tp).replace('%date', date).replace('%time', time) )
     #print fc
 
+    #with open(fc+'.fc', 'rb') as f:
 
-    y=np.loadtxt(fc+'.fc')
-    x=np.loadtxt(fc+'.csv', delimiter=',', skiprows=1, usecols=(2,3,4,5,6,7,8,9))
+    #y=np.loadtxt(fc+'.fc')
+    #x=np.loadtxt(fc+'.csv', delimiter=',', skiprows=1, usecols=(2,3,4,5,6,7,8,9))
 
-    x2=np.array(x)
-    x2.resize((len(y),8))
-    r=np.linalg.lstsq(x2, y)[0]
-    print list(r)
+    #x2=np.array(x)
+    #x2.resize((len(y),8))
+    #r=np.linalg.lstsq(x2, y)[0]
+    #print list(r)
 
 if __name__ == "__main__":
     optimizetask(sys.argv[1])
