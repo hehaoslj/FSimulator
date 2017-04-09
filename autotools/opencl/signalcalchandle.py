@@ -46,8 +46,9 @@ def get_idx_file(cfg):
 #const char* genopencltask(const char*);
 def genopencltask(fn):
     global cl_tmpl
-    #print cl_tmpl
+    print cl_tmpl
     gen = render(cl_tmpl)
+    #print
 
     #open config file
     ffi = cffi.FFI()

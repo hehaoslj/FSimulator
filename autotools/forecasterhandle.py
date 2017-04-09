@@ -31,7 +31,7 @@ def forecastertask(fn):
     f=open("./autotools/clibdef.h", "r")
     cdef = f.read()
     ffi.cdef(cdef)
-    siglib = ffi.dlopen("/home/hehao/hwork/fsimulator/dist/libforecaster.so")
+    siglib = ffi.dlopen("libforecaster.so")
 
     print dir(siglib)
 

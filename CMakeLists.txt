@@ -178,6 +178,23 @@ add_custom_command(
 
 if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
 
+    #pypy include path /usr/lib64/pypy-5.0.1/include
+    set(OpenCL_DIR /usr/local/cuda-7.5)
+    INCLUDE_DIRECTORIES(${OpenCL_DIR}/include)
+    LINK_DIRECTORIES(${OpenCL_DIR}/lib64)
+
+    LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c)
+    add_executable(myopencl ${myopencl_src})
+    target_link_libraries(myopencl ${jansson_libs} eal_static OpenCL /lib64/libpthread.so.0)
+    target_link_libraries(myopencl -L${CMAKE_BINARY_DIR}  signalcalctask-1.0)
+
+    add_custom_command(
+            TARGET myopencl
+            POST_BUILD
+            COMMAND cp -r \"${CMAKE_SOURCE_DIR}/autotools/opencl/subsignal_trade.cl\" ${CMAKE_BINARY_DIR}
+            COMMENT "Copying opencl script"
+        )
+
     INCLUDE_DIRECTORIES(../fmtrader/lib/libforecaster ${jansson_header} )
     LIST(APPEND forecaster_SRCS  forecaster.cpp)
     LIST(APPEND forecaster_SRCS autotools/clibapp.cpp)

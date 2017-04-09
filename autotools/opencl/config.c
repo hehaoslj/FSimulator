@@ -87,7 +87,7 @@ bool cfg_get_bool(config_t cfg, const char *keys)
     config_s *pv = (config_s *)cfg;
     json_t* obj;
     obj = obj_get(pv->root, keys);
-    if(!json_boolean_value(obj))
+    if(!json_is_boolean(obj))
         return false;
     return true;
 }
@@ -139,7 +139,7 @@ bool cfg_get_list_bool(config_t cfg, const char *keys, int idx)
     obj = obj_get(pv->root, keys);
     if(!json_is_array(obj))
         return NULL;
-    return json_boolean_value( json_array_get(obj, idx) );
+    return json_is_boolean( json_array_get(obj, idx) );
 }
 
 void cfg_close(config_t cfg)

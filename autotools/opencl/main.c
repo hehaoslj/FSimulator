@@ -7,7 +7,13 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+
+/** OpenCL */
+#ifdef __APPLE__
 #include <OpenCL/opencl.h>
+#else
+#include <CL/opencl.h>
+#endif
 
 #include "config.h"
 #include "prng.h"
