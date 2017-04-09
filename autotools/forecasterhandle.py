@@ -15,6 +15,8 @@ import os
 import autotools
 from autotools import base_config
 
+import web
+
 #void forecastertask(const char*);
 def forecastertask(fn):
     ffi = cffi.FFI()

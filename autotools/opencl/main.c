@@ -21,9 +21,11 @@
 /*****************************************************************************/
 /** Global definition
 */
+extern const char* genopencltask(const char*);
+#define PROP_TYPE float
+#define SIG_TYPE float
 
-
-#define DATA_SIZE (1024)
+#define SIG_VALUE fsig_data
 
 struct __attribute__((aligned(8))) ChinaL1Msg
 {
@@ -138,7 +140,7 @@ int main(int argc, char** argv)
     /// Host side input/output data
     float *results;           // results returned from device
     float g_signal_multiplier = 1;
-    double *prop_data;      //property data from PRNG
+    PROP_TYPE *prop_data = NULL;      //property data from PRNG
     unsigned int prop_count;// = 8; count of subsignals
     unsigned int prop_count_an;// aligned count of subsignals
     unsigned int prop_group;// = global;
@@ -185,6 +187,9 @@ int main(int argc, char** argv)
 
     long i = 0;
     long j = 0;
+
+    float* fsig_data;
+    float* fprop_data;
 
 
     clGetPlatformIDs(0,0,&platforms);
@@ -285,34 +290,18 @@ int main(int argc, char** argv)
 
 
 
-    char* kernel_src = NULL;
+    const char* kernel_src = NULL;
     {
-        FILE* fp = NULL;
-        long fsize = 0;
         const char* name;
-
         name = cfg_get_string(cfg, "optimizer.clfile");
-        if(!name)
-        {
-            lmice_error_print("CL file is missing in config\n");
-            return EXIT_FAILURE;
-        }
 
-        fp = fopen(name, "r");
-        if(!fp)
+        kernel_src = genopencltask(cfg_file);
+        if(name)
         {
-            lmice_error_print("CL file(%s) cannot open\n", name);
-            return EXIT_FAILURE;
+            FILE* fp = fopen(name, "wb");
+            fwrite(kernel_src, 1, strlen(kernel_src), fp);
+            fclose(fp);
         }
-
-        fseek(fp, 0L, SEEK_END);
-        fsize = ftell(fp);
-        fseek(fp, 0L, SEEK_SET);
-        kernel_src = (char*) malloc((fsize+1)*sizeof(char));
-        fread(kernel_src, fsize, 1, fp);
-        kernel_src[fsize]='\0';
-        fclose(fp);
-        //printf("code:\n%s\n", kernel_src);
     }
 
     /// Create the compute program from the source buffer
@@ -431,8 +420,9 @@ int main(int argc, char** argv)
         prop_count_an = ((prop_count + sig_aligned -1)/sig_aligned)*sig_aligned;
         printf("sub signals refined size %d\n", prop_count_an);
         prop_trial = cfg_get_integer(cfg, "optimizer.trial");
-        prop_data = (double*)malloc(sizeof(double)*prop_count_an*prop_group);
-        memset(prop_data, 0, sizeof(double)*prop_count_an*prop_group);
+
+        prop_data = (PROP_TYPE*)malloc(sizeof(PROP_TYPE)*prop_count_an*prop_group);
+        memset(prop_data, 0, sizeof(PROP_TYPE)*prop_count_an*prop_group);
 
 
         //prng_free(pn);
@@ -459,6 +449,16 @@ int main(int argc, char** argv)
         }
 
         fclose(fp);
+
+        fsig_data = (float*)malloc(sizeof(float)*prop_count_an*sig_count);
+        memset(fsig_data, 0, sizeof(float)*prop_count_an*sig_count );
+        for(i=0; i<sig_count; ++i)
+        {
+            for(j=0; j< prop_count; ++j)
+            {
+                fsig_data[i*prop_count_an+j] = (float)sig_data[i*prop_count_an+j];
+            }
+        }
 
         /// Create message from market file
         strcpy(name+strlen(name)-3, ".dat");
@@ -490,97 +490,15 @@ int main(int argc, char** argv)
             *mkt = (pc->m_bid+pc->m_offer)*0.5;
             *(mkt+1) = pc->m_offer;
             *(mkt+2) = pc->m_bid;
-            *mkt_mid = *(mkt+0);
-            *mkt_ask = *(mkt+1);
-            *mkt_bid = *(mkt+2);
+            *(mkt_mid+i) = *(mkt+0);
+            *(mkt_ask+i) = *(mkt+1);
+            *(mkt_bid+i) = *(mkt+2);
+           // printf("%f %f %f\n", *mkt_mid, *mkt_ask, *mkt_bid);
         }
+        //return 0;
 
         /// Create result
         results = (float*)malloc(sizeof(float) * prop_group);
-
-        /// Create CL script
-        long vec_len = cfg_get_integer(cfg, "optimizer.clvec");
-        fp = fopen("temp.cl", "w");
-        fprintf(fp, "\n"
-                    "#pragma OPENCL EXTENSION cl_amd_printf : enable \n"
-                    "#pragma OPENCL EXTENSION cl_intel_printf : enable\n"
-                    "#pragma OPENCL EXTENSION cl_nv_printf : enable\n"
-                    "#pragma OPENCL EXTENSION cl_khr_fp64 : enable\n"
-                    "struct ChinaL1Msg\n"
-                    "{\n"
-                    "     ulong m_inst;\n"
-                    "     long m_time_micro; /* time in epoch micro seconds */\n"
-                    "     double m_bid;\n"
-                    "     double m_offer;\n"
-                    "     int m_bid_quantity;\n"
-                    "     int m_offer_quantity;\n"
-                    "     int m_volume;\n"
-                    "     double m_notional;\n"
-                    "     double m_limit_up;\n"
-                    "     double m_limit_down;\n"
-                    " } __attribute__ ((aligned (8))) ;\n"
-                    "\n"
-                    "__kernel void signal_simulation(\n"
-                    "    __global const double4* prop_data,   /* prop_count * prop_group */\n"
-                    "    __global const double4* sig_data,    /* prop_count * msg_count*/\n"
-                    "    /*__global const struct ChinaL1Msg* msg,  msg_count*/\n"
-                    "    __global const float3* mkt_data,    /*msg_count */\n"
-                    "    __global float* output,            /* prop_group*/\n"
-                    "    const float g_signal_multiplier,\n"
-                    "    const unsigned int msg_count,\n"
-                    "    const unsigned int prop_count,\n"
-                    "    const unsigned int prop_group,\n"
-                    "    const unsigned int device_type,/* 0-CPU    1-GPU */\n"
-                    "    __global const float%ld* mkt_mid,\n"
-                    "    __global const float%ld* mkt_ask,\n"
-                    "    __global const float%ld* mkt_bid)\n"
-                    "{\n"
-                    "    int group = get_global_id(0);\n"
-                    "    int j;\n"
-                    "    int i;\n"
-                    " \n"
-                    "    if(group >= prop_group)\n"
-                    "        return;\n"
-
-                ,vec_len, vec_len, vec_len);
-
-        fprintf(fp, "\n"
-                    "    for(j=0; j<msg_count/%ld; ++j)\n"
-                    "    {\n"
-                    "        int msg_pos = j*%ld;\n"
-                    "        int prop_pos = %u;\n"
-                "        float%ld signal =(float%ld)(\n", vec_len, vec_len,  prop_count_an/4, vec_len, vec_len);
-        for(i=0; i< vec_len; ++i)
-        {
-            for(j=0; j<prop_count_an/4 -1; ++j)
-            {
-                fprintf(fp,
-                        "            dot(prop_data[group*prop_pos+%ld], sig_data[(msg_pos+%ld)*prop_pos+%ld]) +\n", j, i, j);
-            }
-
-            if(i +1  == vec_len)
-                fprintf(fp,
-                        "            dot(prop_data[group*prop_pos+%u], sig_data[(msg_pos+%ld)*prop_pos+%u])\n\n", prop_count_an/4 -1, i, prop_count_an/4 -1);
-            else
-                fprintf(fp,
-                        "            dot(prop_data[group*prop_pos+%u], sig_data[(msg_pos+%ld)*prop_pos+%u]),\n\n", prop_count_an/4 -1, i, prop_count_an/4 -1);
-        }
-        fprintf(fp, "           );/* end-for signal */\n");
-        fprintf(fp, "       float%ld forecast = mad(mkt_mid[j], signal, mkt_mid[j]);\n", vec_len);
-        fprintf(fp, "       for(i=0; i< %ld; ++i)\n"
-                    "       {\n"
-                    "           if(forecast[i] > mkt_ask[j][i])\n"
-                    "           {\n"
-                    "               output[group] = forecast[i];\n"
-                    "           }\n"
-                    "           else if(forecast[i] < mkt_bid[j][i])\n"
-                    "           {\n"
-                    "               output[group] = forecast[i];\n"
-                    "            }\n"
-                    "        }\n"
-                    "    }\n"
-                    "}\n" ,vec_len);
-        fclose(fp);
 
     }
 
@@ -589,9 +507,9 @@ int main(int argc, char** argv)
     cl_mem cl_bid_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
 
     /// Create the input and output arrays in device memory for our calculation
-    cl_sig_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(double)*prop_count_an*sig_count, NULL, NULL);
+    cl_sig_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(SIG_TYPE)*prop_count_an*sig_count, NULL, NULL);
     //cl_msg_data = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(struct ChinaL1Msg) * msg_count, NULL, NULL);
-    cl_prop_data = clCreateBuffer(context,  CL_MEM_READ_ONLY,  prop_count_an*sizeof(double)*prop_group, NULL, NULL);
+    cl_prop_data = clCreateBuffer(context,  CL_MEM_READ_ONLY,  prop_count_an*sizeof(PROP_TYPE)*prop_group, NULL, NULL);
     cl_mkt_data = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * msg_count * 3, NULL, NULL);
     cl_output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * prop_group, NULL, NULL);
     if (!cl_sig_data || !cl_prop_data || !cl_output || !cl_mkt_data)
@@ -634,7 +552,7 @@ int main(int argc, char** argv)
     err = clEnqueueWriteBuffer(commands, cl_bid_data, CL_TRUE, 0, sizeof(float) * msg_count, mkt_bid, 0, NULL, NULL);
 
     /// Write our data set into the input array in device memory
-    err = clEnqueueWriteBuffer(commands, cl_sig_data, CL_TRUE, 0, sizeof(double) * prop_count_an * sig_count, sig_data, 0, NULL, NULL);
+    err = clEnqueueWriteBuffer(commands, cl_sig_data, CL_TRUE, 0, sizeof(SIG_TYPE) * prop_count_an * sig_count, SIG_VALUE, 0, NULL, NULL);
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to write sig_data to source array!\n");
@@ -660,6 +578,10 @@ int main(int argc, char** argv)
         prng_next(mt19937);
     }
 
+    double best=0;
+    PROP_TYPE *best_prop;
+    best_prop = (PROP_TYPE*)malloc(sizeof(PROP_TYPE)*prop_count_an);
+
     //lmice_info_print("begin process\n");
     for(i=0; i<prop_trial; i += global)
     {
@@ -670,11 +592,12 @@ int main(int argc, char** argv)
             int pc_idx = 0;
             for(;pc_idx<prop_count; ++pc_idx)
             {
-                prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
+                //prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
+                prop_data[j*prop_count_an+pc_idx] = prng_next(mt19937);
             }
         }
 
-        err = clEnqueueWriteBuffer(commands, cl_prop_data, CL_TRUE, 0, sizeof(double) * prop_count_an * prop_group, prop_data, 0, NULL, NULL);
+        err = clEnqueueWriteBuffer(commands, cl_prop_data, CL_TRUE, 0, sizeof(PROP_TYPE) * prop_count_an * prop_group, prop_data, 0, NULL, NULL);
         if (err != CL_SUCCESS)
         {
             printf("Error: Failed to write prop_data to source array!\n");
@@ -709,9 +632,30 @@ int main(int argc, char** argv)
             exit(1);
         }
 
+        for(j=0; j<prop_group; ++j)
+        {
+            if(results[j] > best)
+            {
+                int pc_idx = 0;
+                best = results[j];
+                for(pc_idx = 0; pc_idx < prop_count_an; ++pc_idx)
+                    best_prop[pc_idx] = prop_data[j*prop_count_an+pc_idx];
+                //printf("position:%ld  result %f\n", i+j, results[j]);
+            }
+        }
+
 
     } /* for-i: prop_group */
+    printf("best %lf\n", best);
+    {
+        int pc_idx;
+        for(pc_idx = 0; pc_idx < prop_count_an; ++pc_idx)
+        {
+            printf("a[%d] = %f\t", pc_idx, best_prop[pc_idx]);
 
+        }
+        printf("\n");
+    }
 
 
     /// Print a brief summary detailing the results

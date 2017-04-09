@@ -227,22 +227,22 @@ def test_ffi():
     siglib.fc_delete(fc)
 
 client=None
-import paramiko
+#import paramiko
 
 def test_ssh():
     global client
-    client = paramiko.SSHClient()
-    client.load_system_host_keys()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    client.connect("192.168.56.101", 22, "hehao", "123")
-    #chan = client.invoke_shell()
-    #print(repr(client.get_transport()))
-    chan = client.invoke_shell('vt102')
-    time.sleep(1);
-    chan.setblocking(0)
-    chan.sendall('ls\n')
-    print chan.recv(128)
-    return chan
+    #client = paramiko.SSHClient()
+    #client.load_system_host_keys()
+    #client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    #client.connect("192.168.56.101", 22, "hehao", "123")
+    ##chan = client.invoke_shell()
+    ##print(repr(client.get_transport()))
+    #chan = client.invoke_shell('vt102')
+    #time.sleep(1);
+    #chan.setblocking(0)
+    #chan.sendall('ls\n')
+    #print chan.recv(128)
+    #return chan
 
 def test():
     import autotools

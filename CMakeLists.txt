@@ -227,6 +227,7 @@ message("Forecaster Dose NOT support OSX")
     LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c)
     add_executable(myopencl ${myopencl_src})
     target_link_libraries(myopencl ${OpenCL_LIBRARIES} ${jansson_libs} eal_static)
+    target_link_libraries(myopencl -L${CMAKE_BINARY_DIR}  signalcalctask-1.0)
 
     add_custom_command(
         TARGET myopencl

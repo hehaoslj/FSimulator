@@ -1,5 +1,9 @@
 QT       += core gui
-QT += network
+QT       += network
+
+QT       += webkit webkitwidgets
+
+QT       += websockets
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -16,8 +20,7 @@ SOURCES += monitor.cpp  \
 HEADERS += mainwindow.h \
     embedpython.h   \
     stdafx.h \
-    clibapp.h \
-    clibdef.h
+    autotools/clibapp.h
 
 FORMS += mainwindow.ui
 
@@ -42,7 +45,9 @@ OTHER_FILES += meta.json signal_calc.py \
     autotools/clib*.* \
     autotools/*.h   \
     /Users/hehao/work/lib/libforecaster/*.h \
-    conf_linux.json autotools/*.py
+    conf_linux.json autotools/*.py  \
+    ui/*.html \
+    ui/js/*.js \
 
 RESOURCES += \
     monitor.qrc
@@ -52,6 +57,13 @@ DISTFILES += \
     autotools/builder.py \
     autotools/signal_calc.py \
     autotools/trading_signal.py \
-    autotools/market_calc.py
+    autotools/market_calc.py \
+    autotools/base_ring.py \
+    autotools/guava.py \
+    autotools/forecasterhandle.py \
+    autotools/optimizehandle.py \
+    autotools/optimizetask.py \
+    autotools/testpy.py \
+    ui/js/wsclient.js
 
 

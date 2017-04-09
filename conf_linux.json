@@ -47,13 +47,13 @@
         "fee_vol_close_y":0.0
     }
     ,"optimizer":{
-        "seed":3312,
+        "seed":12456,
         "trial":1024000,
-        "pos":0,
+        "pos":100,
         "group":102400,
         "aligned":4,
         "clfile":"subsignal_trade.cl",
-        "clfunc":"signal_simulation",
+        "clfunc":"signal_parameters_simulation",
         "clreps":["/home/hehao/hwork", "/Users/hehao/work"],
         "clvec":16
     }
