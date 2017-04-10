@@ -397,9 +397,9 @@ __kernel void signal_parameters_simulation (
     __global const float4* param_data, /* param_count/4 * param_group */
     __global const float4* sig_data,   /* param_count/4 * msg_count */
     //__global const ChinaL1Msg* msg_data,/* msg_count */
-    __global const float3* mkt_data,    /* msg_count */
+    //__global const float3* mkt_data,    /* msg_count */
     __global OutputMsg* output,         /* param_group */
-    const float g_signal_multiple,      /* initialied multiple */
+    //const float g_signal_multiple,      /* initialied multiple */
     const int msg_count,                /* sizeof msg */
     const int param_count,              /* sizeof parameter */
     const int param_group,              /* sizeof param_data */

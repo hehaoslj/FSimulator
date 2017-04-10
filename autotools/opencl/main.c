@@ -323,52 +323,52 @@ int main(int argc, char** argv)
     long prop_seed;                     // prng seed
     long prop_pos;                      // prng number position
 
-    double *sig_data;                   // sub signals data from .fc file
-    float *fsig_data;                   // sub signals data float version
+    double *sig_data = NULL;                   // sub signals data from .fc file
+    float *fsig_data = NULL;                   // sub signals data float version
     unsigned int sig_count;             // sub signals data size
 
-    ChinaL1Msg* msg_data;               // message data from .dat file
+    ChinaL1Msg* msg_data = NULL;               // message data from .dat file
     unsigned int msg_count;             // message data size
-    float* mkt_data;                    // Market data[mid, ask, bid]
-    float* mkt_mid;                     // Market mid data
-    float* mkt_ask;                     // Market ask data
-    float* mkt_bid;                     // Market bid data
+    float* mkt_data = NULL;                    // Market data[mid, ask, bid]
+    float* mkt_mid = NULL;                     // Market mid data
+    float* mkt_ask = NULL;                     // Market ask data
+    float* mkt_bid = NULL;                     // Market bid data
 
     ///OpenCL param
     size_t global = 65536;              // global domain size for our calculation
-    size_t local;                       // local domain size for our calculation
+    size_t local=1;                       // local domain size for our calculation
 
     /// Device side param
-    cl_mem cl_output;                   // results
+    cl_mem cl_output = NULL;                   // results
 
-    cl_mem cl_prop_data;                // property data
-    cl_mem cl_msg_data;                 // message data
-    cl_mem cl_sig_data;                 // sub signals data
-    cl_mem cl_mkt_data;                 // Market data [mid, ask, bid]
-    cl_mem cl_mid_data;                 // Market mid data
-    cl_mem cl_ask_data;                 // Market ask data
-    cl_mem cl_bid_data;                 // Market bid data
+    cl_mem cl_prop_data = NULL;                // property data
+    cl_mem cl_msg_data = NULL;                 // message data
+    cl_mem cl_sig_data = NULL;                 // sub signals data
+    cl_mem cl_mkt_data = NULL;                 // Market data [mid, ask, bid]
+    cl_mem cl_mid_data = NULL;                 // Market mid data
+    cl_mem cl_ask_data = NULL;                 // Market ask data
+    cl_mem cl_bid_data = NULL;                 // Market bid data
 
 
     cl_uint platforms;
     cl_platform_id *platform_id;
 
-    cl_device_id * device_ids;
-    cl_device_id device_id;             // compute device id
+    cl_device_id * device_ids=NULL;
+    cl_device_id device_id=NULL;             // compute device id pointed to->device_ids[dev_id]
     cl_uint device_num;
 
-    cl_context context;                 // compute context
-    cl_command_queue commands;          // compute command queue
-    cl_program program;                 // compute program
-    cl_kernel kernel;                   // compute kernel
+    cl_context context = NULL;                 // compute context
+    cl_command_queue commands = NULL;          // compute command queue
+    cl_program program = NULL;                 // compute program
+    cl_kernel kernel = NULL;                   // compute kernel
 
 
 
 
     /// Config param
     config_t cfg;                       // Config object
-    float* highest_data;                // Output highest data
-    float* lowest_data;                 // Output lowest data
+    float* highest_data = NULL;                // Output highest data
+    float* lowest_data = NULL;                 // Output lowest data
     int highest;                        // size of highest data
     int lowest;                         // size of lowest data
 
@@ -652,9 +652,9 @@ int main(int argc, char** argv)
     cl_sig_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(SIG_TYPE)*prop_count_an*sig_count, NULL, NULL);
     //cl_msg_data = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(struct ChinaL1Msg) * msg_count, NULL, NULL);
     cl_prop_data = clCreateBuffer(context,  CL_MEM_READ_ONLY,  prop_count_an*sizeof(PROP_TYPE)*prop_group, NULL, NULL);
-    cl_mkt_data = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * msg_count * 3, NULL, NULL);
+    //cl_mkt_data = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * msg_count * 3, NULL, NULL);
     cl_output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(OutputMsg) * prop_group, NULL, NULL);
-    if (!cl_sig_data || !cl_prop_data || !cl_output || !cl_mkt_data)
+    if (!cl_sig_data || !cl_prop_data || !cl_output)// || !cl_mkt_data)
     {
         lmice_error_print("Error: Failed to allocate device memory! sig=%p prop=%p output=%p mkt=%p prop_data=%p\n", cl_sig_data, cl_prop_data, cl_output, cl_mkt_data, prop_data);
         exit(1);
@@ -663,18 +663,19 @@ int main(int argc, char** argv)
     //return 0;
     /// Set the arguments to our compute kernel
     err = 0;
-    err |= clSetKernelArg(kernel, 0, sizeof(cl_mem), &cl_prop_data);
-    err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &cl_sig_data);
-    err |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &cl_mkt_data);
-    err |= clSetKernelArg(kernel, 3, sizeof(cl_mem), &cl_output);
-    err |= clSetKernelArg(kernel, 4, sizeof(float), &prop_multi);
-    err |= clSetKernelArg(kernel, 5, sizeof(unsigned int), &msg_count);
-    err |= clSetKernelArg(kernel, 6, sizeof(unsigned int), &prop_count_an);
-    err |= clSetKernelArg(kernel, 7, sizeof(unsigned int), &prop_group);
-    err |= clSetKernelArg(kernel, 8, sizeof(unsigned int), &dev_id);
-    err |= clSetKernelArg(kernel, 9, sizeof(cl_mem), &cl_mid_data);
-    err |= clSetKernelArg(kernel, 10, sizeof(cl_mem), &cl_ask_data);
-    err |= clSetKernelArg(kernel, 11, sizeof(cl_mem), &cl_bid_data);
+    i=0;
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_prop_data);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_sig_data);
+    //err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_mkt_data);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_output);
+    //err |= clSetKernelArg(kernel, i++, sizeof(float), &prop_multi);
+    err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &msg_count);
+    err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &prop_count_an);
+    err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &prop_group);
+    err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &dev_id);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_mid_data);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_ask_data);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_bid_data);
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to set kernel arguments! %d\n", err);
@@ -707,7 +708,8 @@ int main(int argc, char** argv)
 //        printf("Error: Failed to write msg_data to source array!\n");
 //        exit(1);
 //    }
-    err = clEnqueueWriteBuffer(commands, cl_mkt_data, CL_TRUE, 0, sizeof(float) * 3 * msg_count, mkt_data, 0, NULL, NULL);
+
+    //err = clEnqueueWriteBuffer(commands, cl_mkt_data, CL_TRUE, 0, sizeof(float) * 3 * msg_count, mkt_data, 0, NULL, NULL);
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to write mkt_data to source array!\n");
@@ -734,7 +736,7 @@ int main(int argc, char** argv)
                 prop_data[j*prop_count_an+pc_idx] = 2*(prng_next(mt19937) - 0.5);
             }
         }
-
+        cl_event event;
         err = clEnqueueWriteBuffer(commands, cl_prop_data, CL_TRUE, 0, sizeof(PROP_TYPE) * prop_count_an * prop_group, prop_data, 0, NULL, NULL);
         if (err != CL_SUCCESS)
         {
@@ -750,17 +752,27 @@ int main(int argc, char** argv)
         //local = 32;
         printf("process[%ld]:\tglobal=%lu  local=%lu\n", i, global, local);
 
-        err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, NULL);
+        err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, &event);
         if (err)
         {
             printf("Error: Failed to execute kernel![%d]\n", err);
             return EXIT_FAILURE;
         }
 
+
         /// Wait for the command commands to get serviced before reading back results
         clFinish(commands);
 
-        lmice_info_print("calculate process finished prop_group-%u\n", prop_group);
+        {
+            cl_ulong start, end;
+            clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END,
+            sizeof(cl_ulong), &end, NULL);
+            clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START,
+            sizeof(cl_ulong), &start, NULL);
+            float executionTimeInMilliseconds = (end - start) * 1.0e-6f;
+            lmice_info_print("calculate process finished prop_group-%u time(ms)-%f\n", prop_group,executionTimeInMilliseconds);
+        }
+
 
         /// Read back the results from the device to verify the output
         err = clEnqueueReadBuffer( commands, cl_output, CL_TRUE, 0, sizeof(OutputMsg) * prop_group, results, 0, NULL, NULL );
@@ -876,21 +888,39 @@ int main(int argc, char** argv)
     printf("Computed!\n");
 
     /// Shutdown and cleanup
-    clReleaseMemObject(cl_prop_data);
-    clReleaseMemObject(cl_sig_data);
-    //clReleaseMemObject(cl_msg_data);
-    clReleaseMemObject(cl_mkt_data);
-    clReleaseMemObject(cl_output);
-    clReleaseProgram(program);
-    clReleaseKernel(kernel);
-    clReleaseCommandQueue(commands);
-    clReleaseContext(context);
+    free(results);
 
+    free(prop_data);
+    free(sig_data);
+    free(fsig_data);
     free(msg_data);
     free(mkt_data);
-    free(sig_data);
-    free(prop_data);
-    free(results);
+    free(mkt_mid);
+    free(mkt_ask);
+    free(mkt_bid);
+
+    clReleaseMemObject(cl_output);
+    clReleaseMemObject(cl_prop_data);
+    clReleaseMemObject(cl_msg_data);
+    clReleaseMemObject(cl_sig_data);
+    clReleaseMemObject(cl_mkt_data);
+    clReleaseMemObject(cl_mid_data);
+    clReleaseMemObject(cl_ask_data);
+    clReleaseMemObject(cl_bid_data);
+
+    free(platform_id);
+    free(device_ids);
+
+    clReleaseContext(context);
+    clReleaseCommandQueue(commands);
+    clReleaseProgram(program);
+    clReleaseKernel(kernel);
+
+    cfg_close(cfg);
+    free(highest_data);
+    free(lowest_data);
+
+
 
     return 0;
 }

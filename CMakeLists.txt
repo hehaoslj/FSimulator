@@ -251,7 +251,7 @@ message("Forecaster Dose NOT support OSX")
     add_custom_command(
         TARGET myopencl
         POST_BUILD
-        COMMAND cp -r \"${CMAKE_SOURCE_DIR}/autotools/opencl/subsignal_trade.cl\" ${CMAKE_BINARY_DIR}
+        #COMMAND cp -r \"${CMAKE_SOURCE_DIR}/autotools/opencl/subsignal_trade.cl\" ${CMAKE_BINARY_DIR}
         COMMENT "Copying opencl script"
     )
 
