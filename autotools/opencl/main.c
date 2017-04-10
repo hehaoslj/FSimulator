@@ -22,7 +22,7 @@
 #include <pthread.h>
 
 #include "lmice_trace.h" /*EAL library */
-
+#include "lmice_eal_time.h"
 
 /*****************************************************************************/
 /** Global definition
@@ -642,6 +642,11 @@ int main(int argc, char** argv)
         memset(highest_data, 0, (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
         memset(lowest_data, 'c',  (sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
 
+        /// Signal multiple
+        double mult = cfg_get_real(cfg, "optimizer.sig_multiple");
+        if(mult != 0)
+            prop_multi = mult;
+
     }
 
     cl_mid_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
@@ -721,7 +726,8 @@ int main(int argc, char** argv)
     {
         prng_next(mt19937);
     }
-
+    int64_t tbegin;
+    get_tick_count(&tbegin);
     //lmice_info_print("begin process\n");
     for(i=0; i<prop_trial; i += global)
     {
@@ -733,7 +739,7 @@ int main(int argc, char** argv)
             for(;pc_idx<prop_count; ++pc_idx)
             {
                 //prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
-                prop_data[j*prop_count_an+pc_idx] = 2*(prng_next(mt19937) - 0.5);
+                prop_data[j*prop_count_an+pc_idx] = prop_multi * 2 *(prng_next(mt19937) - 0.5);
             }
         }
         cl_event event;
@@ -830,6 +836,9 @@ int main(int argc, char** argv)
 
 
     } /* for-i: prop_group */
+    int64_t tend;
+    get_tick_count(&tend);
+    lmice_critical_print("Calc time %lld\n", tend-tbegin);
     printf("best %f  %f\n", highest_data[0], highest_data[1]);
     {
         int pc_idx;

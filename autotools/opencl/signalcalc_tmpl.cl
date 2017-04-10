@@ -440,7 +440,7 @@ __kernel void signal_parameters_simulation (
         $:(vec_type) signal = ($:(vec_type)) (
                 $:str("\\n\\t\\t").join("dot(param_data[pm_pos+{pm_idx}], sig_data[(msg_pos + {msg_idx} )*{msg_range} + {pm_idx}]){seps}".format(msg_range=msg_range, pm_idx=pm_idx, msg_idx=msg_idx, seps='+' if pm_idx < msg_range-1 else "" if msg_idx == clvec-1 else ",\\n" ) for msg_idx in range(clvec) for pm_idx in range(msg_range) ) );
 
-        signal = signal * 2.2f;
+        //signal = signal * 2.2f;
         $:(vec_type) forecast = mad(mkt_mid[j], signal, mkt_mid[j]);
         float* pfc = (float*)&forecast;
         __global float* pask = (__global float*)&(mkt_ask[j]);
