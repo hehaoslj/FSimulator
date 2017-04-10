@@ -48,6 +48,7 @@ typedef struct _g_status
     float m_fee_rate;
     float m_fee_vol;
     float m_money;
+    int m_order;
 } __attribute__ ((aligned (8))) g_status;
 
 ///输入报单
@@ -64,6 +65,12 @@ typedef struct _CUstpFtdcInputOrderField
         int	Volume;
 
 }__attribute__ ((aligned (8))) CUstpFtdcInputOrderField;
+
+typedef struct _OutputMsg
+{
+    int m_order;
+    float m_result;
+}__attribute__ ((aligned (8))) OutputMsg;
 
 void deal_order(g_status* conf, CUstpFtdcInputOrderField* g_order);
 
@@ -201,7 +208,7 @@ __kernel void signal_multiple_simulation (
     __global const float4* sig_data,   /* param_count/4 * msg_count */
     //__global const ChinaL1Msg* msg_data,/* msg_count */
     __global const float3* mkt_data,    /* msg_count */
-    __global float* output,             /* param_group */
+    __global OutputMsg* output,             /* param_group */
     const float g_signal_multiple,      /* initialied multiple */
     const int msg_count,                /* sizeof msg */
     const int param_count,              /* sizeof parameter */
@@ -219,7 +226,8 @@ __kernel void signal_multiple_simulation (
     if( param_pos >= param_group)
         return;
 
-    output[param_pos] = 0;
+    output[param_pos].m_result = 0;
+    output[param_pos].m_order = 0;
     for(j = 0; j < msg_count / $:(clvec); ++j)
     {
         int msg_pos = j*$:(clvec);
@@ -240,18 +248,22 @@ $for msg_idx in range(clvec):
     $#end-for:pm-idx
 $#end-for:msg-idx
 
+        signal = signal * 2.2f;
         //$:(vec_type) forecast = mkt_mid[j]*(1+signal);
         $:(vec_type) forecast = mad(mkt_mid[j], signal, mkt_mid[j]);
-        float rt = 0;
-
-$ ask = 'mkt_ask[j][i]'
-$ bid = 'mkt_bid[j][i]'
-$ fc = 'forecast[i]'
+        int rt = 0;
+        float* pfc = (float*)&forecast;
+        __global float* pask = (__global float*)&mkt_ask[j];
+        __global float* pbid = (__global float*)&mkt_bid[j];
+$ ask = 'pask[i]'
+$ bid = 'pbid[i]'
+$ fc = 'pfc[i]'
 $if clvec == 1:
-    $ ask = 'mkt_ask[j]'
-    $ bid = 'mkt_bid[j]'
-    $ fc = 'forecast'
+    $ ask = '*pask'
+    $ bid = '*pbid'
+    $ fc = '*pfc'
 $#end-if
+
 
         for(i=0; i<$:(clvec);++i)
         {
@@ -262,7 +274,8 @@ $#end-if
         }
 
 
-        output[param_pos] = output[param_pos] + rt;
+        output[param_pos].m_result = output[param_pos].m_result + rt;
+        output[param_pos].m_order = output[param_pos].m_order + rt;
     }
 }
 
@@ -332,6 +345,7 @@ void deal_order(g_status* conf, CUstpFtdcInputOrderField* g_order)
 
         //维护PL
         conf->m_money = conf->m_money + money - fee;
+        conf->m_order += 1;
     }
 }
 
@@ -384,7 +398,7 @@ __kernel void signal_parameters_simulation (
     __global const float4* sig_data,   /* param_count/4 * msg_count */
     //__global const ChinaL1Msg* msg_data,/* msg_count */
     __global const float3* mkt_data,    /* msg_count */
-    __global float* output,             /* param_group */
+    __global OutputMsg* output,         /* param_group */
     const float g_signal_multiple,      /* initialied multiple */
     const int msg_count,                /* sizeof msg */
     const int param_count,              /* sizeof parameter */
@@ -411,9 +425,14 @@ __kernel void signal_parameters_simulation (
     conf.m_fee_rate=0.0001f;
     conf.m_fee_vol = 0.0f;
     conf.m_money = 0.0f;
+    conf.m_order = 0;
+
+    float last_ask;
+    float last_bid;
 
 
-    output[param_pos]=0;
+    output[param_pos].m_result=0;
+    output[param_pos].m_order=0;
     for(j = 0; j < msg_count / $:(clvec); ++j)
     {
         int msg_pos = j*$:(clvec);
@@ -423,13 +442,16 @@ __kernel void signal_parameters_simulation (
 
         signal = signal * 2.2f;
         $:(vec_type) forecast = mad(mkt_mid[j], signal, mkt_mid[j]);
-$ ask = 'mkt_ask[j][i]'
-$ bid = 'mkt_bid[j][i]'
-$ fc = 'forecast[i]'
+        float* pfc = (float*)&forecast;
+        __global float* pask = (__global float*)&(mkt_ask[j]);
+        __global float* pbid = (__global float*)&(mkt_bid[j]);
+$ ask = 'pask[i]'
+$ bid = 'pbid[i]'
+$ fc = 'pfc[i]'
 $if clvec == 1:
-    $ ask = 'mkt_ask[j]'
-    $ bid = 'mkt_bid[j]'
-    $ fc = 'forecast'
+    $ ask = '*pask'
+    $ bid = '*pbid'
+    $ fc = '*pfc'
 $#end-if
         for(i=0; i<$:(clvec);++i)
         {
@@ -445,10 +467,12 @@ $#end-if
             }
         }
     }
-
+    last_ask = ((__global float*)&(mkt_ask[msg_count / $:(clvec)-1]))[0];
+    last_bid = ((__global float*)&(mkt_bid[msg_count / $:(clvec)-1]))[0];
     flatten(&conf,
-        mkt_ask[msg_count / $:(clvec)-1][0],
-        mkt_bid[msg_count / $:(clvec)-1][0]);
+        last_ask,last_bid
+        );
 
-    output[param_pos]=conf.m_money;
+    output[param_pos].m_result=conf.m_money;
+    output[param_pos].m_order=conf.m_order;
 }

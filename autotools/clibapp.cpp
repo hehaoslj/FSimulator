@@ -249,6 +249,7 @@ forecaster_t fc_create(const char* type)
     in->trading_instrument = fc->get_trading_instrument();
     Dummy_ChinaL1Msg& msg_dt = *(Dummy_ChinaL1Msg*)&in->trad_msg;
     msg_dt.m_inst = in->trading_instrument;
+    printf("trade = %s\n", in->trading_instrument.c_str());
     in->subscriptions = fc->get_subscriptions();
     for(size_t i=0; i<in->subscriptions.size(); ++i)
     {
@@ -256,6 +257,7 @@ forecaster_t fc_create(const char* type)
         Dummy_ChinaL1Msg& msg_dt = *(Dummy_ChinaL1Msg*)&msg;
         msg_dt.m_inst = in->subscriptions[i];
         in->sub_msgs.push_back(msg);
+        printf("sub [%lu] = %s\n", i, in->subscriptions[i].c_str());
     }
     in->subsignals = fc->get_subsignal_name();
     in->sub_sigs.resize(in->subsignals.size());
@@ -557,7 +559,8 @@ inline void proc_guava1(in_forecaster_t* in, char* buf, FILE* fp) {
                 /** Calculate */
                 ChinaL1Msg &msg_data = *pmsg_data;
                 Dummy_ChinaL1Msg& msg_dt = *(Dummy_ChinaL1Msg*)&msg_data;
-                int64_t micro_time = (int64_t)hdr->tv_sec*1000000+data->head.m_millisecond;
+                int64_t micro_time = (int64_t)hdr->tv_sec*1000000LL+data->head.m_millisecond*1000;
+
 
                 //msg_dt.m_inst = data->head.m_symbol;
                 //msg_dt.m_time_micro = dtime*1000000+data->head.m_millisecond*1000;
@@ -573,7 +576,7 @@ inline void proc_guava1(in_forecaster_t* in, char* buf, FILE* fp) {
                     //msg_dt.m_offer = data->normal.m_ask_px;
                     //msg_dt.m_bid_quantity = data->normal.m_bid_share;
                     //msg_dt.m_offer_quantity = data->normal.m_ask_share;
-                    msg_dt.m_volume = data->normal.m_total_pos;//guava1 no-data md_data->PriVol.Volume ;
+                    msg_dt.m_volume = data->normal.m_last_share;//guava1 no-data md_data->PriVol.Volume ;
                     msg_dt.m_notional = data->normal.m_total_value;//md_data->PriVol.Turnover;
                     break;
                 case 2:
@@ -589,7 +592,7 @@ inline void proc_guava1(in_forecaster_t* in, char* buf, FILE* fp) {
                     msg_dt.m_offer = data->normal.m_ask_px;
                     msg_dt.m_bid_quantity = data->normal.m_bid_share;
                     msg_dt.m_offer_quantity = data->normal.m_ask_share;
-                    msg_dt.m_volume = data->normal.m_total_pos;//guava1 no-data md_data->PriVol.Volume ;
+                    msg_dt.m_volume = data->normal.m_last_share;//guava1 no-data md_data->PriVol.Volume ;
                     msg_dt.m_notional = data->normal.m_total_value;//md_data->PriVol.Turnover;
                     break;
                 case 0:

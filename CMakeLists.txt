@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 2.8)
 
-project(forecaster)
+project(fsimulator)
 
 set(CMAKE_VERBOSE_MAKEFILE off)
 
@@ -168,6 +168,7 @@ add_dependencies(testlib GenCFFI)
 target_link_libraries(testlib plugin_libs)
 target_link_libraries(testlib -L${CMAKE_BINARY_DIR}  signalcalctask-1.0)
 
+
 add_custom_command(
     TARGET testlib
     PRE_BUILD
@@ -182,6 +183,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     set(OpenCL_DIR /usr/local/cuda-7.5)
     INCLUDE_DIRECTORIES(${OpenCL_DIR}/include)
     LINK_DIRECTORIES(${OpenCL_DIR}/lib64)
+    target_link_libraries(testlib -L${CMAKE_BINARY_DIR} forecastertask-1.0)
 
     LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c)
     add_executable(myopencl ${myopencl_src})
@@ -217,7 +219,7 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
         TARGET testlib
         PRE_BUILD
         DEPENDS forecaster
-        COMMAND python -O -OO \"${CMAKE_SOURCE_DIR}/autotools/optimizetask.py\"
+        COMMAND pypy -O -OO \"${CMAKE_SOURCE_DIR}/autotools/optimizetask.py\"
         COMMENT "Compiling Forecaster python-- ${CMAKE_SOURCE_DIR}/testlib.py"
     )
 

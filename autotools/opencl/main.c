@@ -21,7 +21,7 @@
 #include <locale.h>
 #include <pthread.h>
 
-#include <lmice_trace.h> /*EAL library */
+#include "lmice_trace.h" /*EAL library */
 
 
 /*****************************************************************************/
@@ -33,7 +33,7 @@ extern const char* genopencltask(const char*);
 
 #define SIG_VALUE fsig_data
 
-struct __attribute__((aligned(8))) ChinaL1Msg
+typedef struct _ChinaL1Msg
 {
     uint64_t m_inst;
     int64_t m_time_micro; /* time in epoch micro seconds */
@@ -45,7 +45,13 @@ struct __attribute__((aligned(8))) ChinaL1Msg
     double m_notional;
     double m_limit_up;
     double m_limit_down;
-};
+}__attribute__((aligned(8))) ChinaL1Msg;
+
+typedef struct _OutputMsg
+{
+    int m_order;
+    float m_result;
+}OutputMsg;
 
 /*****************************************************************************/
 
@@ -100,13 +106,13 @@ static inline void print_device_info(cl_device_id device_id, int pos)
                     sizeof(buff),
                     buff,
                     NULL);
-    printf(" Version: %s ", buff);
+    printf("\tVersion: %s ", buff);
     clGetDeviceInfo(device_id,
                     CL_DEVICE_NAME,
                     sizeof(buff),
                     buff,
                     NULL);
-    printf("Name: %s\n", buff);
+    printf("\tName: %s\n", buff);
 }
 
 static inline void replace_str(char* buff, const char* sep, const char* rep, size_t rep_len)
@@ -139,93 +145,9 @@ static inline void replace_str(char* buff, const char* sep, const char* rep, siz
     } while(bpos);
 }
 
-int main(int argc, char** argv)
+static inline int proc_cmdline(int argc, char** argv, int* dev_id, const char** cfg_file)
 {
-    int err;                            // error code returned from api calls
-
-    /// Host side input/output data
-    float *results;           // results returned from device
-    float g_signal_multiplier = 1;
-    PROP_TYPE *prop_data = NULL;      //property data from PRNG
-    unsigned int prop_count;// = 8; count of subsignals
-    unsigned int prop_count_an;// aligned count of subsignals
-    unsigned int prop_group;// = global;
-    long prop_trial;                //total trial
-    long prop_seed;                 // PRNG seed
-    long prop_pos;                  // number position
-    double *sig_data;               //sub signals data from .fc file
-    unsigned int sig_count;         //sub signals data size
-    struct ChinaL1Msg* msg_data;    // message data from .dat file
-    unsigned int msg_count;         //message data size
-    float* mkt_data;                //Market data[mid, ask, bid]
-    float* mkt_mid;
-    float* mkt_ask;
-    float* mkt_bid;
-
-    size_t global = 65536;              // global domain size for our calculation
-    size_t local;                       // local domain size for our calculation
-
-    /// Device side param
-    cl_mem cl_output;
-    cl_mem cl_prop_data;
-    //cl_mem cl_msg_data;
-    cl_mem cl_sig_data;
-    cl_mem cl_mkt_data;     //Market data [mid, ask, bid]
-
-    cl_uint device_num;
-    cl_device_id * device_ids;
-    cl_device_id device_id;             // compute device id
-    cl_context context;                 // compute context
-    cl_command_queue commands;          // compute command queue
-    cl_program program;                 // compute program
-    cl_kernel kernel;                   // compute kernel
-
-
-    cl_uint platforms;
-    cl_platform_id *platform_id;
-
-    /// Config param
-    config_t cfg;
-
-    int dev_id;                 // Device id
-    const char* cfg_file=NULL;  // Config file
-
-
-    long i = 0;
-    long j = 0;
-
-    float* fsig_data;
-    float* fprop_data;
-
-
-    clGetPlatformIDs(0,0,&platforms);
-    platform_id = (cl_platform_id*)malloc(platforms * sizeof(cl_platform_id));
-    clGetPlatformIDs (platforms, platform_id, NULL);
-    printf("platform num %u\n", platforms);
-    for(i=0; i< platforms; ++i)
-    {
-        print_platform_info(platform_id[i], i);
-
-
-        err = clGetDeviceIDs(platform_id[i], CL_DEVICE_TYPE_ALL, 0, 0, &device_num);
-        device_ids = (cl_device_id *)malloc(sizeof(cl_device_id)*device_num);
-        err = clGetDeviceIDs(platform_id[i],CL_DEVICE_TYPE_ALL,device_num,device_ids,NULL);
-
-        printf("device num %u\n", device_num);
-        for(j=0; j< device_num; ++j)
-        {
-            printf("\t");
-            print_device_info(device_ids[j], j);
-
-        }
-
-
-    }
-    //setlocale(LC_TIME, "zh_CN.UTF-8");
-    pthread_setname_np("SignalSimulation");
-
-    // Connect to a compute device
-    /** Process command line */
+    int i;
     for(i=0; i<argc; ++i)
     {
         const char* cmd = argv[i];
@@ -241,7 +163,7 @@ int main(int argc, char** argv)
             if(i+1 < argc)
             {
                 cmd = argv[i+1];
-                dev_id = atoi(cmd);
+                *dev_id = atoi(cmd);
             }
             else
             {
@@ -252,7 +174,7 @@ int main(int argc, char** argv)
         else if(strncmp(cmd, "--device=", 9) == 0)
         {
             cmd += 9;
-            dev_id = atoi(cmd);
+            *dev_id = atoi(cmd);
         }
         else if(strcmp(cmd, "-i") == 0 ||
                 strcmp(cmd, "--input") == 0)
@@ -260,7 +182,7 @@ int main(int argc, char** argv)
             if(i+1 < argc)
             {
                 cmd = argv[i+1];
-                cfg_file = cmd;
+                *cfg_file = cmd;
             }
             else
             {
@@ -271,50 +193,24 @@ int main(int argc, char** argv)
         else if(strncmp(cmd, "--input=",8) == 0)
         {
             cmd += 8;
-            cfg_file = cmd;
+            *cfg_file = cmd;
         }
     }
+    return 0;
+}
 
-    if (dev_id >= device_num)
-    {
-        printf("Error: Failed to create a device group!!\n");
-        return EXIT_FAILURE;
-    }
-    cfg=cfg_init_file(cfg_file);
-    lmice_critical_print("cfg insttype=%s\n", cfg_get_string(cfg, "insttype"));
-    device_id = device_ids[dev_id];
-    print_device_info(device_id, dev_id);
+static inline int load_kernel_from_source(const char* cfg_file, cl_context context, cl_device_id device_id, cl_program* pp)
+{
+    cl_int err;
+    const char* kernel_src;
+    cl_program program;
 
-    // Create a compute context
-    //
-    context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
-    if (!context)
-    {
-        printf("Error: Failed to create a compute context!\n");
-        return EXIT_FAILURE;
-    }
-
-
-
-    const char* kernel_src = NULL;
-    {
-        const char* name;
-        name = cfg_get_string(cfg, "optimizer.clfile");
-
-        kernel_src = genopencltask(cfg_file);
-        if(name)
-        {
-            FILE* fp = fopen(name, "wb");
-            fwrite(kernel_src, 1, strlen(kernel_src), fp);
-            fclose(fp);
-        }
-    }
-
+    kernel_src = genopencltask(cfg_file);
     /// Create the compute program from the source buffer
     program = clCreateProgramWithSource(context, 1, (const char **) & kernel_src, NULL, &err);
     if (!program)
     {
-        printf("Error: Failed to create compute program!\n");
+        lmice_error_print("Failed to create compute program from source\n");
         return EXIT_FAILURE;
     }
 
@@ -323,10 +219,254 @@ int main(int argc, char** argv)
     if (err != CL_SUCCESS)
     {
         size_t len;
-        char buffer[2048];
+        char buffer[8192*2];
 
         clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
-        lmice_error_print("Error: Failed to build program executable[%d] %s!\n", err, buffer);
+        lmice_error_print("Failed to build program executable[%d]\n%s", err, buffer);
+        return EXIT_FAILURE;
+    }
+
+    *pp = program;
+
+    return err;
+}
+
+static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_file, cl_context context, cl_device_id device_id, cl_program* pp)
+{
+    cl_int err;
+    size_t size;
+    unsigned char* src[1];
+    cl_program program;
+    FILE* fp = fopen(bin_name, "rb");
+    if(!fp)
+    {
+        err = load_kernel_from_source(cfg_file, context, device_id, &program);
+        if(err != CL_SUCCESS)
+            return EXIT_FAILURE;
+
+        err = clGetProgramInfo(program, CL_PROGRAM_BINARY_SIZES,
+                               sizeof(size_t),
+                               &size, NULL);
+        if(err != CL_SUCCESS)
+        {
+            lmice_error_print("Failed to get program info[%d]\n", err);
+            return EXIT_FAILURE;
+        }
+        src[0] = (unsigned char*)malloc(size);
+        err = clGetProgramInfo(program, CL_PROGRAM_BINARIES,
+                               sizeof(char*),
+                               src, NULL);
+        if(err != CL_SUCCESS)
+        {
+            lmice_error_print("Failed to get program binary[%d]\n", err);
+            return EXIT_FAILURE;
+        }
+
+        fp = fopen(bin_name, "wb");
+        fwrite(src[0], 1, size, fp);
+        fclose(fp);
+
+    }
+    else
+    {
+
+
+
+        fseek(fp, 0L, SEEK_END);
+        size = ftell(fp);
+        fseek(fp, 0L, SEEK_SET);
+
+        src[0] = (unsigned char*)malloc(size);
+        fread(src[0], 1, size, fp);
+        fclose(fp);
+
+        program = clCreateProgramWithBinary(context, 1, &device_id, &size, (const unsigned char**)src, NULL, &err);
+        if (!program)
+        {
+            lmice_error_print("Failed to create compute program from binary\n");
+            return EXIT_FAILURE;
+        }
+
+        /// Build the program executable
+        err = clBuildProgram(program, 1, &device_id, "-cl-std=CL1.2", NULL, NULL);
+        if (err != CL_SUCCESS)
+        {
+            size_t len;
+            char buffer[8192*2];
+
+            clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
+            lmice_error_print("Failed to build program executable[%d]\n%s", err, buffer);
+            return EXIT_FAILURE;
+        }
+    }
+
+    free(src[0]);
+    *pp = program;
+
+    return err;
+
+}
+
+int main(int argc, char** argv)
+{
+    int err;                            // error code returned from api calls
+
+    /// Host side input/output data
+    OutputMsg *results;                 // results returned from device
+
+    PROP_TYPE *prop_data = NULL;        // property data from PRNG (prop_count_an*prop_group)
+    unsigned int prop_count;            // size of subsignals
+    unsigned int prop_count_an;         // aligned size of subsignals (optimizer.aligned)
+    unsigned int prop_group;            // each calc trial count(= global);
+    float prop_multi = 1.0f;            // prng multiple
+    long prop_trial;                    // total trial count
+    long prop_seed;                     // prng seed
+    long prop_pos;                      // prng number position
+
+    double *sig_data;                   // sub signals data from .fc file
+    float *fsig_data;                   // sub signals data float version
+    unsigned int sig_count;             // sub signals data size
+
+    ChinaL1Msg* msg_data;               // message data from .dat file
+    unsigned int msg_count;             // message data size
+    float* mkt_data;                    // Market data[mid, ask, bid]
+    float* mkt_mid;                     // Market mid data
+    float* mkt_ask;                     // Market ask data
+    float* mkt_bid;                     // Market bid data
+
+    ///OpenCL param
+    size_t global = 65536;              // global domain size for our calculation
+    size_t local;                       // local domain size for our calculation
+
+    /// Device side param
+    cl_mem cl_output;                   // results
+
+    cl_mem cl_prop_data;                // property data
+    cl_mem cl_msg_data;                 // message data
+    cl_mem cl_sig_data;                 // sub signals data
+    cl_mem cl_mkt_data;                 // Market data [mid, ask, bid]
+    cl_mem cl_mid_data;                 // Market mid data
+    cl_mem cl_ask_data;                 // Market ask data
+    cl_mem cl_bid_data;                 // Market bid data
+
+
+    cl_uint platforms;
+    cl_platform_id *platform_id;
+
+    cl_device_id * device_ids;
+    cl_device_id device_id;             // compute device id
+    cl_uint device_num;
+
+    cl_context context;                 // compute context
+    cl_command_queue commands;          // compute command queue
+    cl_program program;                 // compute program
+    cl_kernel kernel;                   // compute kernel
+
+
+
+
+    /// Config param
+    config_t cfg;                       // Config object
+    float* highest_data;                // Output highest data
+    float* lowest_data;                 // Output lowest data
+    int highest;                        // size of highest data
+    int lowest;                         // size of lowest data
+
+    /// Command-line param
+    int dev_id = -1;                    // Device id
+    const char* cfg_file=NULL;          // Config file
+
+
+    long i = 0;
+    long j = 0;
+
+    //setlocale(LC_TIME, "zh_CN.UTF-8");
+#if defined(__MACH__) || defined(__linux__)
+    pthread_setname_np("SigSim");
+#endif
+
+    /** Calc environment initialization */
+    clGetPlatformIDs(0,0,&platforms);
+    platform_id = (cl_platform_id*)malloc(platforms * sizeof(cl_platform_id));
+    clGetPlatformIDs (platforms, platform_id, NULL);
+    lmice_info_print("Calc platforms count=%u\n", platforms);
+    for(i=0; i< platforms; ++i)
+    {
+        print_platform_info(platform_id[i], i);
+        err = clGetDeviceIDs(platform_id[i], CL_DEVICE_TYPE_ALL, 0, 0, &device_num);
+        device_ids = (cl_device_id *)malloc(sizeof(cl_device_id)*device_num);
+        err = clGetDeviceIDs(platform_id[i],CL_DEVICE_TYPE_ALL,device_num,device_ids,NULL);
+
+        printf("device num %u\n", device_num);
+        for(j=0; j< device_num; ++j)
+        {
+            printf("\t");
+            print_device_info(device_ids[j], j);
+        }
+    }
+
+    // Connect to a compute device
+    /** Process command line */
+    err = proc_cmdline(argc, argv, &dev_id, &cfg_file);
+    if(err != 0)
+        return err;
+
+    /** Load config object */
+    cfg=cfg_init_file(cfg_file);
+    if(!cfg)
+    {
+        lmice_error_print("Config file cannot open [%s]\n", cfg_file);
+        return 1;
+    }
+    lmice_info_print("Calc instument type=%s\n", cfg_get_string(cfg, "insttype"));
+
+    // Load default dev_id if not set
+    if(dev_id == -1)
+    {
+        dev_id = cfg_get_integer(cfg, "optimier.deviceid");
+    }
+
+    /** Initialized device */
+    if (dev_id >= device_num)
+    {
+        lmice_error_print("Failed to create[device id too big %d > %d]!!\n", dev_id, device_num);
+        return EXIT_FAILURE;
+    }
+
+    // Print current device info
+    device_id = device_ids[dev_id];
+    print_device_info(device_id, dev_id);
+
+    // Create a compute context
+    context = clCreateContext(0, 1, &device_id, NULL, NULL, &err);
+    if (!context)
+    {
+        lmice_error_print("Failed to create a compute context!\n");
+        return EXIT_FAILURE;
+    }
+
+    // Gen kernel source
+    bool build_kernel = cfg_get_bool(cfg, "optimizer.clbuild");
+    if(build_kernel)
+    {
+        const char* name;
+        char bin_name[256];
+
+        name = cfg_get_string(cfg, "optimizer.clfile");
+
+        memset(bin_name, 0, sizeof(bin_name));
+        strcpy(bin_name, name);
+        sprintf(bin_name+strlen(bin_name), ".%d", dev_id);
+
+        err = load_kernel_from_binary(bin_name, cfg_file, context, device_id, &program);
+    }
+    else
+    {
+        err = load_kernel_from_source(cfg_file, context, device_id, &program);
+    }
+
+    if(err != CL_SUCCESS)
+    {
         return EXIT_FAILURE;
     }
 
@@ -335,7 +475,7 @@ int main(int argc, char** argv)
     kernel = clCreateKernel(program, clfunc, &err);
     if (!kernel || err != CL_SUCCESS)
     {
-        lmice_error_print("Error: Failed to create compute kernel!\n");
+        lmice_error_print("Failed to create compute kernel!\n");
         return EXIT_FAILURE;
     }
 
@@ -371,16 +511,6 @@ int main(int argc, char** argv)
             lmice_error_print("signal_calc files is missing\n");
             return EXIT_FAILURE;
         }
-
-//        int i=1;
-//        float* fi = (float*)&i;
-//        float ft=1.0;
-//        int* ift = (int*)&ft;
-//        printf("int=%d\t float=%f\n", i, *fi);
-//        printf("int=%d\t float=%f\n", *ift, ft);
-//        i=1065353215;
-//        printf("int=%d\t float=%f\n", i, *fi);
-//        return 0;
 
         bpos = strstr(file, bsep);
         sdate = bpos -10;
@@ -473,13 +603,13 @@ int main(int argc, char** argv)
         fseek(fp, 0L, SEEK_END);
         fsize = ftell(fp);
         fseek(fp, 0L, SEEK_SET);
-        if(fsize % sizeof(struct ChinaL1Msg) != 0 || fsize == 0)
+        if(fsize % sizeof(ChinaL1Msg) != 0 || fsize == 0)
         {
-            lmice_error_print("market content is incorrect of size %ld %ld\n", fsize, fsize % sizeof(struct ChinaL1Msg));
+            lmice_error_print("market content is incorrect of size %ld %ld\n", fsize, fsize % sizeof(ChinaL1Msg));
             return EXIT_FAILURE;
         }
-        msg_count = fsize / sizeof(struct ChinaL1Msg);
-        msg_data = (struct ChinaL1Msg*) malloc(fsize);
+        msg_count = fsize / sizeof(ChinaL1Msg);
+        msg_data = (ChinaL1Msg*) malloc(fsize);
         //memset(msg_data, 0, fsize);
         fread(msg_data, fsize, 1, fp);
         fclose(fp);
@@ -491,7 +621,7 @@ int main(int argc, char** argv)
         mkt_bid = (float*)malloc(sizeof(float)*msg_count);
         for(i=0; i<msg_count; ++i)
         {
-            struct ChinaL1Msg* pc = msg_data+i;
+            ChinaL1Msg* pc = msg_data+i;
             float* mkt = mkt_data+i*3;
             *mkt = (pc->m_bid+pc->m_offer)*0.5;
             *(mkt+1) = pc->m_offer;
@@ -504,23 +634,29 @@ int main(int argc, char** argv)
         //return 0;
 
         /// Create result
-        results = (float*)malloc(sizeof(float) * prop_group);
+        results = (OutputMsg*)malloc(sizeof(OutputMsg) * prop_group);
+        highest = cfg_get_integer(cfg, "optimizer.highest");
+        lowest =  cfg_get_integer(cfg, "optimizer.lowest");
+        highest_data = (float*)malloc((sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
+        lowest_data = (float*)malloc((sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
+        memset(highest_data, 0, (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
+        memset(lowest_data, 'c',  (sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
 
     }
 
-    cl_mem cl_mid_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
-    cl_mem cl_ask_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
-    cl_mem cl_bid_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
+    cl_mid_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
+    cl_ask_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
+    cl_bid_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
 
     /// Create the input and output arrays in device memory for our calculation
     cl_sig_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(SIG_TYPE)*prop_count_an*sig_count, NULL, NULL);
     //cl_msg_data = clCreateBuffer(context,  CL_MEM_READ_ONLY,  sizeof(struct ChinaL1Msg) * msg_count, NULL, NULL);
     cl_prop_data = clCreateBuffer(context,  CL_MEM_READ_ONLY,  prop_count_an*sizeof(PROP_TYPE)*prop_group, NULL, NULL);
     cl_mkt_data = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * msg_count * 3, NULL, NULL);
-    cl_output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * prop_group, NULL, NULL);
+    cl_output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(OutputMsg) * prop_group, NULL, NULL);
     if (!cl_sig_data || !cl_prop_data || !cl_output || !cl_mkt_data)
     {
-        lmice_error_print("Error: Failed to allocate device memory!\n");
+        lmice_error_print("Error: Failed to allocate device memory! sig=%p prop=%p output=%p mkt=%p prop_data=%p\n", cl_sig_data, cl_prop_data, cl_output, cl_mkt_data, prop_data);
         exit(1);
     }
 
@@ -531,7 +667,7 @@ int main(int argc, char** argv)
     err |= clSetKernelArg(kernel, 1, sizeof(cl_mem), &cl_sig_data);
     err |= clSetKernelArg(kernel, 2, sizeof(cl_mem), &cl_mkt_data);
     err |= clSetKernelArg(kernel, 3, sizeof(cl_mem), &cl_output);
-    err |= clSetKernelArg(kernel, 4, sizeof(float), &g_signal_multiplier);
+    err |= clSetKernelArg(kernel, 4, sizeof(float), &prop_multi);
     err |= clSetKernelArg(kernel, 5, sizeof(unsigned int), &msg_count);
     err |= clSetKernelArg(kernel, 6, sizeof(unsigned int), &prop_count_an);
     err |= clSetKernelArg(kernel, 7, sizeof(unsigned int), &prop_group);
@@ -584,10 +720,6 @@ int main(int argc, char** argv)
         prng_next(mt19937);
     }
 
-    double best=0;
-    PROP_TYPE *best_prop;
-    best_prop = (PROP_TYPE*)malloc(sizeof(PROP_TYPE)*prop_count_an);
-
     //lmice_info_print("begin process\n");
     for(i=0; i<prop_trial; i += global)
     {
@@ -599,7 +731,7 @@ int main(int argc, char** argv)
             for(;pc_idx<prop_count; ++pc_idx)
             {
                 //prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
-                prop_data[j*prop_count_an+pc_idx] = prng_next(mt19937);
+                prop_data[j*prop_count_an+pc_idx] = 2*(prng_next(mt19937) - 0.5);
             }
         }
 
@@ -631,7 +763,7 @@ int main(int argc, char** argv)
         lmice_info_print("calculate process finished prop_group-%u\n", prop_group);
 
         /// Read back the results from the device to verify the output
-        err = clEnqueueReadBuffer( commands, cl_output, CL_TRUE, 0, sizeof(float) * prop_group, results, 0, NULL, NULL );
+        err = clEnqueueReadBuffer( commands, cl_output, CL_TRUE, 0, sizeof(OutputMsg) * prop_group, results, 0, NULL, NULL );
         if (err != CL_SUCCESS)
         {
             printf("Error: Failed to read output array! %d\n", err);
@@ -640,29 +772,105 @@ int main(int argc, char** argv)
 
         for(j=0; j<prop_group; ++j)
         {
-            if(results[j] > best)
+            float rt = results[j].m_result;
+            float* pd = prop_data +j*prop_count_an;
+            int rt_idx;
+            const int rt_size = sizeof(OutputMsg)+sizeof(float)*prop_count;
+            OutputMsg* hlast = (OutputMsg*)((char*)highest_data+rt_size*(highest-1));
+            if(hlast->m_result < rt)
             {
-                int pc_idx = 0;
-                best = results[j];
-                for(pc_idx = 0; pc_idx < prop_count_an; ++pc_idx)
-                    best_prop[pc_idx] = prop_data[j*prop_count_an+pc_idx];
-                //printf("position:%ld  result %f\n", i+j, results[j]);
+                for(rt_idx =0; rt_idx < highest; ++rt_idx)
+                {
+                    OutputMsg* hcurrent = (OutputMsg*)((char*)highest_data+rt_size*rt_idx);
+                    float* hcdata = (float*)(hcurrent+1);
+                    OutputMsg* hnext = (OutputMsg*)((char*)highest_data+rt_size*(rt_idx+1));
+                    if (hcurrent->m_result < rt)
+                    {
+                        if(rt_idx < highest-1)
+                            memcpy(hnext, hcurrent, rt_size*(highest - rt_idx -1) );
+                        //hcurrent[0] = rt;
+                        memcpy(hcurrent, &results[j], sizeof(OutputMsg));
+                        memcpy(hcdata, pd, sizeof(float)*prop_count);
+                        break;
+                    }
+                }
             }
+            hlast = (OutputMsg*)((char*)lowest_data+rt_size*(lowest-1));
+            if(hlast->m_result > rt)
+            {
+                for(rt_idx =0; rt_idx < lowest; ++rt_idx)
+                {
+                    OutputMsg* hcurrent = (OutputMsg*)((char*)lowest_data+rt_size*rt_idx);
+                    float* hcdata = (float*)(hcurrent+1);
+                    OutputMsg* hnext = (OutputMsg*)((char*)lowest_data+rt_size*(rt_idx+1));
+                    if (hcurrent->m_result > rt)
+                    {
+                        if(rt_idx < lowest-1)
+                            memcpy(hnext, hcurrent, rt_size*(lowest - rt_idx -1) );
+                        memcpy(hcurrent, &results[j], sizeof(OutputMsg));
+                        memcpy(hcdata, pd, sizeof(float)*prop_count);
+                        break;
+                    }
+                }
+            }
+
         }
 
 
     } /* for-i: prop_group */
-    printf("best %lf\n", best);
+    printf("best %f  %f\n", highest_data[0], highest_data[1]);
     {
         int pc_idx;
-        for(pc_idx = 0; pc_idx < prop_count_an; ++pc_idx)
+        for(pc_idx = 0; pc_idx < prop_count; ++pc_idx)
         {
-            printf("a[%d] = %f\t", pc_idx, best_prop[pc_idx]);
+            printf("a[%d] = %f\t", pc_idx, highest_data[2+pc_idx]);
 
         }
         printf("\n");
     }
+    struct rt_dummy
+    {
+        OutputMsg msg;
+        float data[1];
+    };
+    const int rt_size = sizeof(OutputMsg)+sizeof(float)*prop_count;
+    {
+        int i;
+        int rt_idx;
+        FILE* fp = fopen("lowest.csv", "w");
+        fprintf(fp, "\"order\",\"result\"");
+        for(i=0; i<prop_count; ++i)
+            fprintf(fp, ",\"a[%d]\"", i);
+        fprintf(fp, "\n");
+        for(rt_idx =0; rt_idx < lowest; ++rt_idx)
+        {
+            struct rt_dummy* hd = (struct rt_dummy*)((char*)lowest_data+rt_size*rt_idx);
 
+            fprintf(fp, "%d,%f", hd->msg.m_order, hd->msg.m_result);
+            for(i=0; i<prop_count; ++i)
+                fprintf(fp, ",%f", hd->data[i]);
+            fprintf(fp, "\n");
+        }
+        fclose(fp);
+    }
+    {
+        int i;
+        int rt_idx;
+        FILE* fp = fopen("highest.csv", "w");
+        fprintf(fp, "\"order\",\"result\"");
+        for(i=0; i<prop_count; ++i)
+            fprintf(fp, ",\"a[%d]\"", i);
+        fprintf(fp, "\n");
+        for(rt_idx =0; rt_idx < highest; ++rt_idx)
+        {
+            struct rt_dummy* hd = (struct rt_dummy*)((char*)highest_data+rt_size*rt_idx);
+            fprintf(fp, "%d,%f", hd->msg.m_order, hd->msg.m_result);
+            for(i=0; i<prop_count; ++i)
+                fprintf(fp, ",%f", hd->data[i]);
+            fprintf(fp, "\n");
+        }
+        fclose(fp);
+    }
 
     /// Print a brief summary detailing the results
     printf("Computed!\n");

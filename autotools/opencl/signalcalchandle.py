@@ -46,16 +46,20 @@ def get_idx_file(cfg):
 #const char* genopencltask(const char*);
 def genopencltask(fn):
     global cl_tmpl
-    print cl_tmpl
-    gen = render(cl_tmpl)
+    ffi = cffi.FFI()
+    #print cl_tmpl
+    gen = render(cl_tmpl, globals={'str':str})
     #print
 
     #open config file
-    ffi = cffi.FFI()
+    print "open config file"
     f = open(ffi.string(fn), 'rb')
+    print "config read"
     code = f.read()
+    print "config loads"
     cfg = base_config.config_loads(code)
     f.close()
+
 
     ##generate ctx
     #basic info
@@ -83,6 +87,6 @@ def genopencltask(fn):
 
     result = str(gen(ctx))
     rt = ffi.new("char[]", result)
-
+    print "gen ok"
     return rt
 
