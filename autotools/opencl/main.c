@@ -659,7 +659,11 @@ int main(int argc, char** argv)
                          hb_size,
                          PROT_READ|PROT_WRITE,
                          MAP_ANON|MAP_PRIVATE,
+                 #if defined(__MACH__)
                          VM_FLAGS_SUPERPAGE_SIZE_2MB,
+                 #elif defined(__linux__)
+                         MAP_HUGETLB,
+                 #endif
                          0
                          );
         if(host_bulk == MAP_FAILED)
