@@ -263,7 +263,7 @@ static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_
         //src[0] = (unsigned char*)malloc(size);
         err = clGetProgramInfo(program, CL_PROGRAM_BINARIES,
                                sizeof(char*),
-                               src, NULL);
+                               (void*)psrc, NULL);
         if(err != CL_SUCCESS)
         {
             lmice_error_print("Failed to get program binary[%d]\n", err);
@@ -410,8 +410,8 @@ int main(int argc, char** argv)
         return 1;
     }
 
-    /** Set thread name */
-#if defined(__MACH__) || defined(__linux__)
+    /** Set thread name linux(centos7.2) may crash */
+#if defined(__MACH__)
     svalue = cfg_get_string(cfg, "conftype");
     if(svalue)
         pthread_setname_np(svalue);
