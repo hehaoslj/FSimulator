@@ -248,7 +248,7 @@ $for msg_idx in range(clvec):
     $#end-for:pm-idx
 $#end-for:msg-idx
 
-        signal = signal * 2.2f;
+        //signal = signal * 2.2f;
         //$:(vec_type) forecast = mkt_mid[j]*(1+signal);
         $:(vec_type) forecast = mad(mkt_mid[j], signal, mkt_mid[j]);
         int rt = 0;
