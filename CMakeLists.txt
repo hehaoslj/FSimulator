@@ -4,7 +4,6 @@ project(fsimulator)
 
 set(CMAKE_VERBOSE_MAKEFILE off)
 
-
 # Find includes in corresponding build directories
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -46,6 +45,7 @@ if( ${CMAKE_CXX_COMPILER_ID} MATCHES "Clang")
         "${CMAKE_BINARY_DIR}/libguavatask-1.0.dylib")
 ENDIF()
 
+
 FIND_LIBRARY(jansson_libs NAMES jansson
                 PATHS /usr/local /usr
             )
@@ -54,7 +54,8 @@ FIND_PATH(jansson_header jansson.h)
 FIND_LIBRARY(libforecaster_static NAMES forecaster
     PATHS ../fmtrader/lib/libforecaster)
 
-#LIB EAL
+
+##LIB EAL
 FIND_PATH(eal_header lmice_trace.h
     PATHS ../fmtrader/eal)
 LIST(APPEND eal_SRCS  ../fmtrader/eal/lmice_ring.c
@@ -83,6 +84,7 @@ SET_TARGET_PROPERTIES(eal_static PROPERTIES CLEAN_DIRECT_OUTPUT 1)
 #MESSAGE(jansson path is ${eal_header})
 INCLUDE_DIRECTORIES(${jansson_header})
 INCLUDE_DIRECTORIES(${eal_header})
+
 #LIST(REMOVE_ITEM forecaster_SRCS clibapp.cpp)
 #Shared EAL Library
 #ADD_LIBRARY(eal SHARED ${EAL_SRCS})
@@ -231,7 +233,7 @@ message("Forecaster Dose NOT support OSX")
 
     find_package(OpenCL REQUIRED)
 
-    INCLUDE_DIRECTORIES(${OpenCL_INCLUDE_DIRS})
+    INCLUDE_DIRECTORIES(${OpenCL_INCLUDE_DIRS} /usr/local/include)
 
     LINK_DIRECTORIES(${OpenCL_LIBRARY})
 
@@ -242,6 +244,14 @@ message("Forecaster Dose NOT support OSX")
         COMMAND /System/Library/Frameworks/OpenCL.framework/Libraries/openclc -c -cl-std=CL1.2 -cl-auto-vectorize-enable -O3 \"${CMAKE_SOURCE_DIR}/autotools/opencl/mykernel.cl\"
         COMMENT "Compiling opencl"
     )
+
+#FIND_PACKAGE( OpenMP REQUIRED)
+if(OPENMP_FOUND)
+message("OPENMP FOUND")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${OpenMP_C_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
+endif()
 
     LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c)
     add_executable(myopencl ${myopencl_src})

@@ -1,4 +1,4 @@
-
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,8 +11,11 @@
 /** OpenCL */
 #ifdef __APPLE__
 #include <OpenCL/opencl.h>
-#else
+#include <sys/mman.h>
+#include <mach/vm_statistics.h>
+#elif defined(__linux__)
 #include <CL/opencl.h>
+#include <sys/mman.h>
 #endif
 
 #include "config.h"
@@ -42,6 +45,7 @@ typedef struct _ChinaL1Msg
     int32_t m_bid_quantity;
     int32_t m_offer_quantity;
     int32_t m_volume;
+    int32_t m_reserved_0; /* Padding only, no use*/
     double m_notional;
     double m_limit_up;
     double m_limit_down;
@@ -54,24 +58,22 @@ typedef struct _OutputMsg
 }OutputMsg;
 
 /*****************************************************************************/
-
-/** Simple compute kernel which computes the square of an input array
+/** Helper functions
 */
-//const char *KernelSource = "\n";
+
 static inline void print_usage(void)
 {
     printf("Signal Simulation App\n"
            "Usage:\n"
            "myopencl -argn1 argv1 --argn2=argv2...>\n"
            "\t-h,--help\t\tPrint this message.\n"
-           "\t-d,--device=d\t\tChoose calculation device.\n");
+           "\t-d,--device=d\t\tChoose calculation device.\n"
+           "\t-i,--input=s\t\tChoose config file.\n");
 }
-
-////////////////////////////////////////////////////////////////////////////////
 
 static inline void print_platform_info(cl_platform_id platform_id, int pos)
 {
-    char buff[128];
+    char buff[256];
     clGetPlatformInfo(platform_id,
                       CL_PLATFORM_VENDOR,
                       sizeof(buff),
@@ -94,7 +96,7 @@ static inline void print_platform_info(cl_platform_id platform_id, int pos)
 
 static inline void print_device_info(cl_device_id device_id, int pos)
 {
-    char buff[128];
+    char buff[256];
     clGetDeviceInfo(device_id,
                     CL_DEVICE_VENDOR,
                     sizeof(buff),
@@ -118,7 +120,6 @@ static inline void print_device_info(cl_device_id device_id, int pos)
 static inline void replace_str(char* buff, const char* sep, const char* rep, size_t rep_len)
 {
     char *bpos;
-    char* temp;
     size_t len;
     size_t len2;
     size_t len3;
@@ -129,18 +130,15 @@ static inline void replace_str(char* buff, const char* sep, const char* rep, siz
     len = strlen(sep);
     len2 = strlen(buff);
 
-    temp = (char*)malloc(len2+rep_len);
     do {
         bpos = strstr(buff, sep);
         if(bpos)
         {
             len3 = strlen(bpos+len);
-            strncpy(temp, bpos+len, len3);
-            if(len > rep_len)
-                buff[len2 - len + rep_len] = '\0';
+            memcpy(bpos+rep_len, bpos+len, len3);
+            memcpy(bpos, rep, rep_len);
+            buff[len2 - len + rep_len] = '\0';
 
-            strncpy(bpos, rep, rep_len);
-            strncpy(bpos+rep_len, temp, len3);
         }
     } while(bpos);
 }
@@ -205,7 +203,9 @@ static inline int load_kernel_from_source(const char* cfg_file, cl_context conte
     const char* kernel_src;
     cl_program program;
 
+    // Generate Kernel source
     kernel_src = genopencltask(cfg_file);
+
     /// Create the compute program from the source buffer
     program = clCreateProgramWithSource(context, 1, (const char **) & kernel_src, NULL, &err);
     if (!program)
@@ -219,7 +219,7 @@ static inline int load_kernel_from_source(const char* cfg_file, cl_context conte
     if (err != CL_SUCCESS)
     {
         size_t len;
-        char buffer[8192*2];
+        char buffer[8192*32];
 
         clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
         lmice_error_print("Failed to build program executable[%d]\n%s", err, buffer);
@@ -235,8 +235,11 @@ static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_
 {
     cl_int err;
     size_t size;
-    unsigned char* src[1];
+    unsigned char src[8192*512];
+    const unsigned char *psrc[1];
     cl_program program;
+    psrc[0] = src;
+    memset(src, 0, 8192*512);
     FILE* fp = fopen(bin_name, "rb");
     if(!fp)
     {
@@ -252,7 +255,12 @@ static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_
             lmice_error_print("Failed to get program info[%d]\n", err);
             return EXIT_FAILURE;
         }
-        src[0] = (unsigned char*)malloc(size);
+        if(size > 8192*512)
+        {
+            lmice_error_print("Failed to get program binary too big[%lu]\n", size);
+            return EXIT_FAILURE;
+        }
+        //src[0] = (unsigned char*)malloc(size);
         err = clGetProgramInfo(program, CL_PROGRAM_BINARIES,
                                sizeof(char*),
                                src, NULL);
@@ -263,7 +271,7 @@ static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_
         }
 
         fp = fopen(bin_name, "wb");
-        fwrite(src[0], 1, size, fp);
+        fwrite(src, 1, size, fp);
         fclose(fp);
 
     }
@@ -275,43 +283,50 @@ static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_
         fseek(fp, 0L, SEEK_END);
         size = ftell(fp);
         fseek(fp, 0L, SEEK_SET);
-
-        src[0] = (unsigned char*)malloc(size);
-        fread(src[0], 1, size, fp);
+        //src[0] = (unsigned char*)malloc(size);
+        if(size > 8192*512)
+        {
+            lmice_error_print("Failed to get program binary too big[%lu]\n", size);
+            return EXIT_FAILURE;
+        }
+        fread(src, 1, size, fp);
         fclose(fp);
-
-        program = clCreateProgramWithBinary(context, 1, &device_id, &size, (const unsigned char**)src, NULL, &err);
+        program = clCreateProgramWithBinary(context, 1, &device_id, &size, psrc, NULL, &err);
         if (!program)
         {
             lmice_error_print("Failed to create compute program from binary\n");
             return EXIT_FAILURE;
         }
-
         /// Build the program executable
         err = clBuildProgram(program, 1, &device_id, "-cl-std=CL1.2", NULL, NULL);
         if (err != CL_SUCCESS)
         {
-            size_t len;
-            char buffer[8192*2];
+            size_t len=0;
+            char buffer[8192*32];
 
             clGetProgramBuildInfo(program, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &len);
-            lmice_error_print("Failed to build program executable[%d]\n%s", err, buffer);
+            lmice_error_print("Failed to build program executable[%d]:\n%s", err, buffer);
             return EXIT_FAILURE;
         }
     }
 
-    free(src[0]);
     *pp = program;
-
+    //free(src[0]);
     return err;
 
 }
 
+/*****************************************************************************/
+/** main function
+  All objects/bulk datas are 8-bytes aligned
+  */
 int main(int argc, char** argv)
 {
     int err;                            // error code returned from api calls
 
-    /// Host side input/output data
+    /** Host side input/output data */
+    size_t hb_size;
+    void* host_bulk;
     OutputMsg *results;                 // results returned from device
 
     PROP_TYPE *prop_data = NULL;        // property data from PRNG (prop_count_an*prop_group)
@@ -334,11 +349,18 @@ int main(int argc, char** argv)
     float* mkt_ask = NULL;                     // Market ask data
     float* mkt_bid = NULL;                     // Market bid data
 
-    ///OpenCL param
+    /** Config param */
+    config_t cfg;                       // Config object
+    float* highest_data = NULL;                // Output highest data
+    float* lowest_data = NULL;                 // Output lowest data
+    int highest;                        // size of highest data
+    int lowest;                         // size of lowest data
+
+    /** OpenCL param */
     size_t global = 65536;              // global domain size for our calculation
     size_t local=1;                       // local domain size for our calculation
 
-    /// Device side param
+    /** Device side param */
     cl_mem cl_output = NULL;                   // results
 
     cl_mem cl_prop_data = NULL;                // property data
@@ -351,61 +373,30 @@ int main(int argc, char** argv)
 
 
     cl_uint platforms;
-    cl_platform_id *platform_id;
+    cl_uint device_num = 0;
 
-    cl_device_id * device_ids=NULL;
-    cl_device_id device_id=NULL;             // compute device id pointed to->device_ids[dev_id]
-    cl_uint device_num;
+    cl_platform_id platform_id[4];
+    cl_device_id device_ids[16];
+    cl_device_id  device_id=NULL;             // compute device id pointed to->device_ids[dev_id]
+
 
     cl_context context = NULL;                 // compute context
     cl_command_queue commands = NULL;          // compute command queue
     cl_program program = NULL;                 // compute program
     cl_kernel kernel = NULL;                   // compute kernel
 
-
-
-
-    /// Config param
-    config_t cfg;                       // Config object
-    float* highest_data = NULL;                // Output highest data
-    float* lowest_data = NULL;                 // Output lowest data
-    int highest;                        // size of highest data
-    int lowest;                         // size of lowest data
-
-    /// Command-line param
+    /** Command-line param */
     int dev_id = -1;                    // Device id
     const char* cfg_file=NULL;          // Config file
+    const char* svalue = NULL;          // Config string value
+    bool        bvalue = false;         // Config boolean value
 
 
     long i = 0;
     long j = 0;
 
     //setlocale(LC_TIME, "zh_CN.UTF-8");
-#if defined(__MACH__) || defined(__linux__)
-    pthread_setname_np("SigSim");
-#endif
 
-    /** Calc environment initialization */
-    clGetPlatformIDs(0,0,&platforms);
-    platform_id = (cl_platform_id*)malloc(platforms * sizeof(cl_platform_id));
-    clGetPlatformIDs (platforms, platform_id, NULL);
-    lmice_info_print("Calc platforms count=%u\n", platforms);
-    for(i=0; i< platforms; ++i)
-    {
-        print_platform_info(platform_id[i], i);
-        err = clGetDeviceIDs(platform_id[i], CL_DEVICE_TYPE_ALL, 0, 0, &device_num);
-        device_ids = (cl_device_id *)malloc(sizeof(cl_device_id)*device_num);
-        err = clGetDeviceIDs(platform_id[i],CL_DEVICE_TYPE_ALL,device_num,device_ids,NULL);
-
-        printf("device num %u\n", device_num);
-        for(j=0; j< device_num; ++j)
-        {
-            printf("\t");
-            print_device_info(device_ids[j], j);
-        }
-    }
-
-    // Connect to a compute device
     /** Process command line */
     err = proc_cmdline(argc, argv, &dev_id, &cfg_file);
     if(err != 0)
@@ -418,7 +409,42 @@ int main(int argc, char** argv)
         lmice_error_print("Config file cannot open [%s]\n", cfg_file);
         return 1;
     }
+
+    /** Set thread name */
+#if defined(__MACH__) || defined(__linux__)
+    svalue = cfg_get_string(cfg, "conftype");
+    if(svalue)
+        pthread_setname_np(svalue);
+#endif
+
     lmice_info_print("Calc instument type=%s\n", cfg_get_string(cfg, "insttype"));
+
+
+
+    /** Calc environment initialization */
+    // Get Platform id
+    clGetPlatformIDs(0,0,&platforms);
+    if(platforms > 4) platforms = 4;
+    //platform_id = (cl_platform_id*)malloc(platforms * sizeof(cl_platform_id));
+    clGetPlatformIDs (platforms, platform_id, NULL);
+
+    // Print device info
+    for(i=0; i< platforms; ++i)
+    {
+        print_platform_info(platform_id[i], i);
+        err = clGetDeviceIDs(platform_id[i], CL_DEVICE_TYPE_ALL, 0, 0, &device_num);
+        if(device_num > 16) device_num = 16;
+        //device_ids = (cl_device_id *)malloc(sizeof(cl_device_id)*device_num);
+        err = clGetDeviceIDs(platform_id[i],CL_DEVICE_TYPE_ALL,device_num,&device_ids[0],NULL);
+
+        printf("device num %u\n", device_num);
+        for(j=0; j< device_num; ++j)
+        {
+            printf("\t");
+            print_device_info(device_ids[j], j);
+        }
+    }
+
 
     // Load default dev_id if not set
     if(dev_id == -1)
@@ -446,17 +472,20 @@ int main(int argc, char** argv)
     }
 
     // Gen kernel source
-    bool build_kernel = cfg_get_bool(cfg, "optimizer.clbuild");
-    if(build_kernel)
+    bvalue = cfg_get_bool(cfg, "optimizer.clbuild");
+    if(bvalue)
     {
         const char* name;
-        char bin_name[256];
-
+        char bin_name[512];
         name = cfg_get_string(cfg, "optimizer.clfile");
-
-        memset(bin_name, 0, sizeof(bin_name));
-        strcpy(bin_name, name);
-        sprintf(bin_name+strlen(bin_name), ".%d", dev_id);
+        if(strlen(name) > 504)
+        {
+            lmice_error_print("Failed to use optimizer,clfile, long than 504\n");
+            return EXIT_FAILURE;
+        }
+        memset(bin_name, 0, 512);
+        strncpy(bin_name, name, strlen(name));
+        sprintf(bin_name + strlen(bin_name), ".%d", dev_id);
 
         err = load_kernel_from_binary(bin_name, cfg_file, context, device_id, &program);
     }
@@ -464,13 +493,12 @@ int main(int argc, char** argv)
     {
         err = load_kernel_from_source(cfg_file, context, device_id, &program);
     }
-
     if(err != CL_SUCCESS)
     {
         return EXIT_FAILURE;
     }
 
-    /// Create the compute kernel in the program we wish to run
+    // Create the compute kernel in the program we wish to run
     const char* clfunc = cfg_get_string(cfg, "optimizer.clfunc");
     kernel = clCreateKernel(program, clfunc, &err);
     if (!kernel || err != CL_SUCCESS)
@@ -479,7 +507,7 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
-    /// Get the maximum work group size for executing the kernel on the device
+    // Get the maximum work group size for executing the kernel on the device
     err = clGetKernelWorkGroupInfo(kernel, device_id, CL_KERNEL_WORK_GROUP_SIZE, sizeof(local), &local, NULL);
     if (err != CL_SUCCESS)
     {
@@ -487,10 +515,9 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
-    /// Create the host side input and output
+    /** Create the host side input and output */
     {
-        printf("Create the host side input and output\n");
-        config_t idx;
+        lmice_info_print("Create the host side input and output\n");
         const char* pattern;
         const char* file;
         const char* stype;
@@ -500,9 +527,18 @@ int main(int argc, char** argv)
         char* bpos;
         long sig_aligned = 1;
 
+
         int brep_count;
         const char* brep;
         const char* bsep = "__";
+
+        size_t pd_size = 0; //(prop data size(bytes)
+        size_t sg_size = 0; //signal data size(bytes)
+        size_t fs_size = 0; //(float signal data size(bytes)
+        size_t mm_size = 0; // market message size(bytes)
+
+        FILE* fp_sig;   //signal file
+        FILE* fp_msg;   //market message file
 
         const char* outpath = cfg_get_string(cfg, "signal_calc.outpath");
         file = cfg_get_list_string(cfg, "signal_calc.files", 0);
@@ -520,7 +556,6 @@ int main(int argc, char** argv)
         strcat(name, outpath);
         strcat(name, "/");
         strcat(name, pattern);
-        //printf("buff is %s\n d=%s\n t=%s\n t=%s\n", buff, sdate, stime, stype);
 
         //printf("%s\n", buff);
         replace_str(name, "%type", stype, strlen(stype));
@@ -531,63 +566,132 @@ int main(int argc, char** argv)
         //printf("%s\n", buff);
         brep_count = cfg_get_list_size(cfg, "optimizer.clreps");
         printf("brep_count = %d\n", brep_count);
-
-        bsep = cfg_get_list_string(cfg, "optimizer.clreps", 0);
-        brep = cfg_get_list_string(cfg, "optimizer.clreps", 1);
-        replace_str(name, bsep, brep, strlen(brep));
-
-        /// Create prop data from prng
-        strcat(name, ".idx");
-        printf("index name is %s\n", name);
-
-        /// Create prop_count from index file
-        idx = cfg_init_file(name);
-        if(!idx)
+        for(i=0; i<brep_count/2; ++i)
         {
-            lmice_error_print("cannot open index file %s\n", name);
-            return EXIT_FAILURE;
+            bsep = cfg_get_list_string(cfg, "optimizer.clreps", i*2);
+            brep = cfg_get_list_string(cfg, "optimizer.clreps", i*2+1);
+            replace_str(name, bsep, brep, strlen(brep));
         }
+
+        // Read prop_count from index file
+        {
+            config_t idx;
+            strcat(name, ".idx");
+            printf("nm = %s\n", name);
+            idx = cfg_init_file(name);
+            if(!idx)
+            {
+                lmice_error_print("cannot open index file %s\n", name);
+                return EXIT_FAILURE;
+            }
+            prop_count = cfg_get_integer(idx,   "size");
+            lmice_info_print("sub signals AKA prop_count size %u\n", prop_count);
+            cfg_close(idx);
+
+            // Reset name extension; the number 4 is strlen('.idx')
+            name[strlen(name)-4] = '\0';
+        }
+
         sig_aligned = cfg_get_integer(cfg,  "optimizer.aligned");
-        prop_seed = cfg_get_integer(cfg,    "optimizer.seed");
-        prop_pos = cfg_get_integer(cfg,     "optimizer.pos");
-        prop_group = cfg_get_integer(cfg,   "optimizer.group");
-        prop_count = cfg_get_integer(idx,   "size");
-        printf("sub signals size %d\n", prop_count);
         prop_count_an = ((prop_count + sig_aligned -1)/sig_aligned)*sig_aligned;
-        printf("sub signals refined size %d\n", prop_count_an);
-        prop_trial = cfg_get_integer(cfg, "optimizer.trial");
+        lmice_info_print("prop_count aligned AKA prop_count_an size %u\n", prop_count_an);
 
-        prop_data = (PROP_TYPE*)malloc(sizeof(PROP_TYPE)*prop_count_an*prop_group);
-        memset(prop_data, 0, sizeof(PROP_TYPE)*prop_count_an*prop_group);
+        prop_seed =     cfg_get_integer(cfg,    "optimizer.seed");
+        prop_pos =      cfg_get_integer(cfg,    "optimizer.pos");
+        prop_group =    cfg_get_integer(cfg,    "optimizer.group");
+        prop_trial =    cfg_get_integer(cfg,    "optimizer.trial");
 
+        // Calc prop_data size sizeof(float)*prop_count_an*prop_group
+        pd_size = sizeof(PROP_TYPE)*prop_count_an*prop_group;
 
-        //prng_free(pn);
-
-        /// Create signal from forecast file
-        strcpy(name+strlen(name)-4, ".fc");
-        printf("forecast file is %s\n", name);
-        FILE* fp = fopen(name, "rb");
-        long fsize;
-        fseek(fp, 0L, SEEK_END);
-        fsize = ftell(fp);
-        fseek(fp, 0L, SEEK_SET);
-        if(fsize % (sizeof(double)*prop_count) != 0 || fsize == 0)
+        // Read signal from forecast file
+        strcat(name, ".fc");
+        fp_sig = fopen(name, "rb");
+        fseek(fp_sig, 0L, SEEK_END);
+        sg_size = ftell(fp_sig);
+        fseek(fp_sig, 0L, SEEK_SET);
+        if(sg_size % (sizeof(double)*prop_count) != 0 || sg_size == 0)
         {
-            lmice_error_print("forecast content is incorrect of size %ld %ld\n", fsize, fsize % (sizeof(double)*prop_count));
+            lmice_error_print("forecast content is incorrect of size %ld %ld\n", sg_size, sg_size % (sizeof(double)*prop_count));
             return EXIT_FAILURE;
         }
-        sig_count = fsize / (sizeof(double)*prop_count);
-        sig_data = (double*) malloc( sizeof(double)*prop_count_an*sig_count );
-        memset(sig_data, 0, sizeof(double)*prop_count_an*sig_count );
+        sig_count = sg_size / (sizeof(double)*prop_count);
+        sg_size = sizeof(double)*prop_count_an*sig_count;
+
+
+        // Generate float type signal data
+        fs_size = sizeof(float)*prop_count_an*sig_count;
+
+
+        // Read market data from market file
+        strcpy(name+strlen(name)-3, ".dat");
+        fp_msg = fopen(name, "rb");
+        fseek(fp_msg, 0L, SEEK_END);
+        mm_size = ftell(fp_msg);
+        fseek(fp_msg, 0L, SEEK_SET);
+        if(mm_size % sizeof(ChinaL1Msg) != 0 || mm_size == 0)
+        {
+            lmice_error_print("market content is incorrect of size %ld %ld\n", mm_size, mm_size % sizeof(ChinaL1Msg));
+            return EXIT_FAILURE;
+        }
+        msg_count = mm_size / sizeof(ChinaL1Msg);
+
+        // Generate market data vectorized
+
+
+        // Get result data size
+        highest = cfg_get_integer(cfg, "optimizer.highest");
+        lowest =  cfg_get_integer(cfg, "optimizer.lowest");
+
+
+        // Signal multiple
+        double mult = cfg_get_real(cfg, "optimizer.sig_multiple");
+        if(mult != 0)
+            prop_multi = mult;
+
+        /** Create memory bulk at host side*/
+        hb_size =  pd_size + sg_size + fs_size + mm_size + sizeof(float)*3*msg_count*2 //mkt
+                + sizeof(OutputMsg) * prop_group //output
+                +(sizeof(OutputMsg) + sizeof(float) * prop_count)* highest
+                +(sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest;
+        hb_size = ((hb_size / (1024*1024*2)) + 1)*(1024*1024*2);
+        host_bulk = mmap(NULL,
+                         hb_size,
+                         PROT_READ|PROT_WRITE,
+                         MAP_ANON|MAP_PRIVATE,
+                         VM_FLAGS_SUPERPAGE_SIZE_2MB,
+                         0
+                         );
+        if(host_bulk == MAP_FAILED)
+        {
+            lmice_error_print("Create memory bulk at host size[%luMB] failed[%p]\n", hb_size/(1024*1024), host_bulk);
+            perror(NULL);
+            return EXIT_FAILURE;
+        }
+
+        // Init pointers
+        prop_data = (float*)host_bulk;
+        sig_data = (double*)((char*)host_bulk + pd_size);
+        fsig_data = (float*)((char*)host_bulk + pd_size + sg_size);
+        msg_data = (ChinaL1Msg*)((char*)host_bulk + pd_size + sg_size + fs_size);
+        mkt_data = (float*)((char*)msg_data + mm_size);
+        mkt_mid = (float*)((char*)mkt_data + sizeof(float)*3*msg_count);
+        mkt_ask = (float*)((char*)mkt_mid + sizeof(float)*msg_count);
+        mkt_bid = (float*)((char*)mkt_ask + sizeof(float)*msg_count);
+        results = (OutputMsg*)((char*)mkt_bid+ sizeof(float)*msg_count);
+        highest_data = (float*)((char*)results + sizeof(OutputMsg) * prop_group);
+        lowest_data = (float*)((char*)highest_data + (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
+
+        // Read Signal Data
+        memset(sig_data, 0, sg_size);
         for(i=0; i<sig_count; ++i)
         {
-            fread(sig_data+i*prop_count_an, sizeof(double)*prop_count, 1, fp);
+            fread(sig_data+i*prop_count_an, sizeof(double)*prop_count, 1, fp_sig);
         }
+        fclose(fp_sig);
 
-        fclose(fp);
-
-        fsig_data = (float*)malloc(sizeof(float)*prop_count_an*sig_count);
-        memset(fsig_data, 0, sizeof(float)*prop_count_an*sig_count );
+        // Construct signal data (float version)
+        memset(fsig_data, 0, fs_size);
         for(i=0; i<sig_count; ++i)
         {
             for(j=0; j< prop_count; ++j)
@@ -596,56 +700,28 @@ int main(int argc, char** argv)
             }
         }
 
-        /// Create message from market file
-        strcpy(name+strlen(name)-3, ".dat");
-        printf("message file is %s\n", name);
-        fp = fopen(name, "rb");
-        fseek(fp, 0L, SEEK_END);
-        fsize = ftell(fp);
-        fseek(fp, 0L, SEEK_SET);
-        if(fsize % sizeof(ChinaL1Msg) != 0 || fsize == 0)
-        {
-            lmice_error_print("market content is incorrect of size %ld %ld\n", fsize, fsize % sizeof(ChinaL1Msg));
-            return EXIT_FAILURE;
-        }
-        msg_count = fsize / sizeof(ChinaL1Msg);
-        msg_data = (ChinaL1Msg*) malloc(fsize);
-        //memset(msg_data, 0, fsize);
-        fread(msg_data, fsize, 1, fp);
-        fclose(fp);
+        // Read market message data
+        fread(msg_data, mm_size, 1, fp_msg);
+        fclose(fp_msg);
 
-        /// Generate market data
-        mkt_data = (float*)malloc(sizeof(float)*3*msg_count);
-        mkt_mid = (float*)malloc(sizeof(float)*msg_count);
-        mkt_ask = (float*)malloc(sizeof(float)*msg_count);
-        mkt_bid = (float*)malloc(sizeof(float)*msg_count);
+        // Construct market data(vectorized version)
         for(i=0; i<msg_count; ++i)
         {
             ChinaL1Msg* pc = msg_data+i;
             float* mkt = mkt_data+i*3;
-            *mkt = (pc->m_bid+pc->m_offer)*0.5;
-            *(mkt+1) = pc->m_offer;
-            *(mkt+2) = pc->m_bid;
+            *mkt = (float)((pc->m_bid+pc->m_offer)*0.5);
+            *(mkt+1) = (float)(pc->m_offer);
+            *(mkt+2) = (float)(pc->m_bid);
             *(mkt_mid+i) = *(mkt+0);
             *(mkt_ask+i) = *(mkt+1);
             *(mkt_bid+i) = *(mkt+2);
-           // printf("%f %f %f\n", *mkt_mid, *mkt_ask, *mkt_bid);
         }
-        //return 0;
 
-        /// Create result
-        results = (OutputMsg*)malloc(sizeof(OutputMsg) * prop_group);
-        highest = cfg_get_integer(cfg, "optimizer.highest");
-        lowest =  cfg_get_integer(cfg, "optimizer.lowest");
-        highest_data = (float*)malloc((sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
-        lowest_data = (float*)malloc((sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
+        // Init result data
         memset(highest_data, 0, (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
         memset(lowest_data, 'c',  (sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
 
-        /// Signal multiple
-        double mult = cfg_get_real(cfg, "optimizer.sig_multiple");
-        if(mult != 0)
-            prop_multi = mult;
+
 
     }
 
@@ -897,16 +973,7 @@ int main(int argc, char** argv)
     printf("Computed!\n");
 
     /// Shutdown and cleanup
-    free(results);
-
-    free(prop_data);
-    free(sig_data);
-    free(fsig_data);
-    free(msg_data);
-    free(mkt_data);
-    free(mkt_mid);
-    free(mkt_ask);
-    free(mkt_bid);
+    munmap(host_bulk, hb_size);
 
     clReleaseMemObject(cl_output);
     clReleaseMemObject(cl_prop_data);
@@ -917,8 +984,8 @@ int main(int argc, char** argv)
     clReleaseMemObject(cl_ask_data);
     clReleaseMemObject(cl_bid_data);
 
-    free(platform_id);
-    free(device_ids);
+    //free(platform_id);
+    //free(device_ids);
 
     clReleaseContext(context);
     clReleaseCommandQueue(commands);
@@ -926,8 +993,6 @@ int main(int argc, char** argv)
     clReleaseKernel(kernel);
 
     cfg_close(cfg);
-    free(highest_data);
-    free(lowest_data);
 
 
 

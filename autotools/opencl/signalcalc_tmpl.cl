@@ -18,26 +18,26 @@ $else:
 #pragma OPENCL EXTENSION cl_amd_printf : enable
 #pragma OPENCL EXTENSION cl_intel_printf : enable
 #pragma OPENCL EXTENSION cl_nv_printf : enable
-#pragma OPENCL EXTENSION cl_khr_fp64 : enable
+//pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
 /****************************************************************************
 *  Structure declaration
 ****************************************************************************/
 
 /** ChinaL1Msg */
-typedef struct _ChinaL1Msg
-{
-    ulong m_inst;
-    long m_time_micro; /* time in epoch micro seconds */
-    double m_bid;
-    double m_offer;
-    int m_bid_quantity;
-    int m_offer_quantity;
-    int m_volume;
-    double m_notional;
-    double m_limit_up;
-    double m_limit_down;
-} __attribute__ ((aligned (8))) ChinaL1Msg;
+//typedef struct _ChinaL1Msg
+//{
+//    ulong m_inst;
+//    long m_time_micro; /* time in epoch micro seconds */
+//    double m_bid;
+//    double m_offer;
+//    int m_bid_quantity;
+//    int m_offer_quantity;
+//    int m_volume;
+//    double m_notional;
+//    double m_limit_up;
+//    double m_limit_down;
+//} __attribute__ ((aligned (8))) ChinaL1Msg;
 
 typedef struct _g_status
 {
@@ -78,21 +78,21 @@ void deal_order(g_status* conf, CUstpFtdcInputOrderField* g_order);
 *  Signal calcuation fallback to non-vectorized version
 ****************************************************************************/
 inline float calc_signal(
-    const __global double* prop,
-    const __global double* sig,
+    const __global float* prop,
+    const __global float* sig,
     const unsigned int pc,
     const unsigned int dtype)
 {
     int j;
-    double rt = 0;
+    float rt = 0;
     int prop_count = pc;
     if(dtype)
     {
         do{
            if(prop_count >= 8)
             {
-                double8 pp = vload8(0, prop);
-                double8 ps = vload8(0, sig);
+                float8 pp = vload8(0, prop);
+                float8 ps = vload8(0, sig);
                 rt += dot(pp.hi, ps.hi) + dot(pp.lo, ps.lo);
                 prop += 8;
                 sig += 8;
@@ -100,8 +100,8 @@ inline float calc_signal(
             }
             else if(prop_count >=4 )
             {
-                double4 pp = vload4(0, prop);
-                double4 ps = vload4(0, sig);
+                float4 pp = vload4(0, prop);
+                float4 ps = vload4(0, sig);
                 rt += dot(pp, ps);
                 prop += 4;
                 sig += 4;
@@ -109,8 +109,8 @@ inline float calc_signal(
             }
             else if(prop_count == 3)
             {
-                double3 pp = vload3(0, prop);
-                double3 ps = vload3(0, sig);
+                float3 pp = vload3(0, prop);
+                float3 ps = vload3(0, sig);
                 rt += dot(pp, ps);
                 prop += 3;
                 sig += 3;
@@ -118,8 +118,8 @@ inline float calc_signal(
             }
             else if(prop_count == 2)
             {
-                double2 pp = vload2(0, prop);
-                double2 ps = vload2(0, sig);
+                float2 pp = vload2(0, prop);
+                float2 ps = vload2(0, sig);
                 rt += dot(pp, ps);
                 prop += 2;
                 sig += 2;
@@ -150,13 +150,13 @@ $for vec in [2,4,8]:
     *  Signal calcuation vectorized( $:(vec) ) version
     ****************************************************************************/
     inline float calc_signal_v$:(vec)(
-        const __global double$:(vec)* prop,
-        const __global double$:(vec)* sig,
+        const __global float$:(vec)* prop,
+        const __global float$:(vec)* sig,
         const unsigned int   prop_count,
         const unsigned int dtype)
     {
         int j;
-        double rt = 0;
+        float rt = 0;
         int pc = prop_count / $:(vec);
         for(j=0; j<pc; ++j)
         {
@@ -176,8 +176,8 @@ $#end-for:vec
 /****************************************************************************
 *  forecast calcuation fallback to non-vectorized version
 ****************************************************************************/
-inline float calc_forecast(__global const double* prop_data,
-    __global const double* sig_data,
+inline float calc_forecast(__global const float* prop_data,
+    __global const float* sig_data,
     __global const float3* mkt_data,
     int prop_pos,
     int msg_pos,
@@ -207,9 +207,9 @@ __kernel void signal_multiple_simulation (
     __global const float4* param_data, /* param_count/4 * param_group */
     __global const float4* sig_data,   /* param_count/4 * msg_count */
     //__global const ChinaL1Msg* msg_data,/* msg_count */
-    __global const float3* mkt_data,    /* msg_count */
+    //__global const float3* mkt_data,    /* msg_count */
     __global OutputMsg* output,             /* param_group */
-    const float g_signal_multiple,      /* initialied multiple */
+    //const float g_signal_multiple,      /* initialied multiple */
     const int msg_count,                /* sizeof msg */
     const int param_count,              /* sizeof parameter */
     const int param_group,              /* sizeof param_data */
@@ -437,6 +437,8 @@ __kernel void signal_parameters_simulation (
     {
         int msg_pos = j*$:(clvec);
         int pm_pos = param_pos* $:(param_count/4);
+        $#//for pm_idx in range(msg_range):
+        $#//    float4 pm$:(pm_idx) = param_data[pm_pos + $:(pm_idx)];
         $:(vec_type) signal = ($:(vec_type)) (
                 $:str("\\n\\t\\t").join("dot(param_data[pm_pos+{pm_idx}], sig_data[(msg_pos + {msg_idx} )*{msg_range} + {pm_idx}]){seps}".format(msg_range=msg_range, pm_idx=pm_idx, msg_idx=msg_idx, seps='+' if pm_idx < msg_range-1 else "" if msg_idx == clvec-1 else ",\\n" ) for msg_idx in range(clvec) for pm_idx in range(msg_range) ) );
 
@@ -469,7 +471,7 @@ $#end-if
     }
     last_ask = ((__global float*)&(mkt_ask[msg_count / $:(clvec)-1]))[0];
     last_bid = ((__global float*)&(mkt_bid[msg_count / $:(clvec)-1]))[0];
-    flatten(&conf,
+    flatten(&conf,//2400.0f,2400.0f
         last_ask,last_bid
         );
 

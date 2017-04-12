@@ -47,12 +47,14 @@
         "fee_vol_close_y":0.0
     }
     ,"optimizer":{
+        "platformid":0,
         "deviceid":2,
         "seed":12,
-        "trial":102400,
+        "trial":4096000,
         "pos":100,
-        "group":102400,
+        "group":409600,
         "aligned":4,
+        "sig_multiple":2.2,
         "clfile":"subsignal_trade.cl",
         "clfunc":"signal_parameters_simulation",
         "clreps":["/home/hehao/hwork", "/Users/hehao/work"],

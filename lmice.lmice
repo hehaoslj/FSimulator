@@ -1,0 +1,85 @@
+/**任务与数据描述 */
+
+// 实盘ChinaL1数据
+
+//pcap文件数据类型 guava2
+filetype pcap_guava2
+{
+    <file_hdr>{24};
+    [
+        <SHFEQuotDataTag>{
+        char            InstrumentID[31];
+        char            fill1;
+        char            UpdateTime[8];
+        char            ActionDay[8];
+        int             UpdateMillisec;
+        int             Volume;         /* 持仓量 */
+        double          LastPrice;      /* 最新价 */
+        double          Turnover;       /* 成交金额 */
+        double          OpenInterest;
+        double          BidPrice1;      /* 最新买价 */
+        double          AskPrice1;      /* 最新卖价 */
+        int             BidVolume1;     /* 最新买量 */
+        int             AskVolume1;     /* 最新卖量 */
+        };
+    ];
+}
+
+/*
+guava1 vs guava2
+
+p_md->hs_body.hs_md_nor.m_total_pos = ptr_data->Volume;
+p_md->hs_body.hs_md_nor.m_total_value = ptr_data->Turnover;
+p_md->hs_body.hs_md_nor.m_last_px = ptr_data->LastPrice;
+p_md->hs_body.hs_md_nor.m_ask_px = ptr_data->AskPrice1;
+p_md->hs_body.hs_md_nor.m_ask_share = ptr_data->AskVolume1;
+p_md->hs_body.hs_md_nor.m_bid_px = ptr_data->BidPrice1;
+p_md->hs_body.hs_md_nor.m_bid_share = ptr_data->BidVolume1;
+
+*/
+
+
+//pcap文件数据类型 guava1
+filetype pcap_guava1
+{
+    <file_hdr>{24};
+    [
+        <pkg_hdr>{
+            unsigned int tv_sec;
+            unsigned int tv_usec;
+            unsigned int size;
+            unsigned int length;
+        };
+        <pkg_data>{
+            char udp_head[42];
+            guava_udp_head head;
+            (
+                guava_udp_normal normal;
+                guava_udp_summary summary;
+            );
+        };
+    ];
+}
+
+//待训练的文件集合定义
+global fileset train_data{<pcap_guava1>{/Users/hehao/work/shif/package_2016-11*};}
+
+//并发文件数量
+global info jobs{
+int cnt = 2;
+int job = 0
+};
+
+//部署文件任务
+task deploy_file{
+bind    train_data jobs;
+startup true;
+logic:
+while len(train_data) > 0:
+    if jobs.job == 0:
+        for i in range(jobs.cnt):
+            fn = train_data.pop(0)
+            os.system("cp %1 /dev/shm" % fn)
+
+stop
+}

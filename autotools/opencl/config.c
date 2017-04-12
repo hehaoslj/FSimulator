@@ -51,10 +51,13 @@ const char* cfg_get_string(void* cfg, const char* keys)
 
 config_t cfg_init_file(const char * name)
 {
-    config_s *cfg = (config_s*)malloc(sizeof(config_s) );
-    cfg->fp = fopen(name, "r");
-    cfg->root = json_loadf(cfg->fp, 0, &cfg->err);
-
+    config_s *cfg = NULL;
+    if(name)
+    {
+        cfg = (config_s*)malloc(sizeof(config_s) );
+        cfg->fp = fopen(name, "r");
+        cfg->root = json_loadf(cfg->fp, 0, &cfg->err);
+    }
     return cfg;
 
 }
