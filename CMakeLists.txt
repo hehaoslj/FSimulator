@@ -18,7 +18,6 @@ add_library(plugin_libs SHARED IMPORTED)
 list(APPEND clean_extra_files "")
 
 
-
 IF( ${CMAKE_CXX_COMPILER} MATCHES  "[cg][+][+]")
     MESSAGE("G++ ")
     set(CMAKE_CXX_FLAGS_DEBUG "-g3")
@@ -53,7 +52,6 @@ FIND_PATH(jansson_header jansson.h)
 
 FIND_LIBRARY(libforecaster_static NAMES forecaster
     PATHS ../fmtrader/lib/libforecaster)
-
 
 ##LIB EAL
 FIND_PATH(eal_header lmice_trace.h
@@ -187,10 +185,10 @@ if (${CMAKE_SYSTEM_NAME} MATCHES "Linux")
     LINK_DIRECTORIES(${OpenCL_DIR}/lib64)
     target_link_libraries(testlib -L${CMAKE_BINARY_DIR} forecastertask-1.0)
 
-    LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c)
+    LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c autotools/opencl/verify.c)
     add_executable(myopencl ${myopencl_src})
     target_link_libraries(myopencl ${jansson_libs} eal_static OpenCL /lib64/libpthread.so.0)
-    target_link_libraries(myopencl -L${CMAKE_BINARY_DIR}  signalcalctask-1.0)
+    target_link_libraries(myopencl -L${CMAKE_BINARY_DIR}  signalcalctask-1.0 m)
 
     add_custom_command(
             TARGET myopencl
@@ -253,7 +251,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OpenMP_CXX_FLAGS}")
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${OpenMP_EXE_LINKER_FLAGS}")
 endif()
 
-    LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c)
+    LIST(APPEND myopencl_src autotools/opencl/main.c autotools/opencl/prng.c  autotools/opencl/config.c autotools/opencl/verify.c)
     add_executable(myopencl ${myopencl_src})
     target_link_libraries(myopencl ${OpenCL_LIBRARIES} ${jansson_libs} eal_static)
     target_link_libraries(myopencl -L${CMAKE_BINARY_DIR}  signalcalctask-1.0)

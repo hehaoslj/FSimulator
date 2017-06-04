@@ -36,6 +36,8 @@ extern const char* genopencltask(const char*);
 
 #define SIG_VALUE fsig_data
 
+#define GPU_DEBUG
+
 typedef struct _ChinaL1Msg
 {
     uint64_t m_inst;
@@ -56,6 +58,7 @@ typedef struct _OutputMsg
     int m_order;
     float m_result;
 }OutputMsg;
+
 
 /*****************************************************************************/
 /** Helper functions
@@ -143,7 +146,8 @@ static inline void replace_str(char* buff, const char* sep, const char* rep, siz
     } while(bpos);
 }
 
-static inline int proc_cmdline(int argc, char** argv, int* dev_id, const char** cfg_file)
+static inline int proc_cmdline(int argc, char** argv, int* dev_id, const char** cfg_file,
+                               int *verify_pos)
 {
     int i;
     for(i=0; i<argc; ++i)
@@ -162,6 +166,20 @@ static inline int proc_cmdline(int argc, char** argv, int* dev_id, const char** 
             {
                 cmd = argv[i+1];
                 *dev_id = atoi(cmd);
+            }
+            else
+            {
+                lmice_error_print("Command(%s) require module name\n", cmd);
+                return 0;
+            }
+        }
+        else if(strcmp(cmd, "-v") == 0 ||
+                strcmp(cmd, "--verify") == 0)
+        {
+            if(i+1 < argc)
+            {
+                cmd = argv[i+1];
+                *verify_pos = atoi(cmd);
             }
             else
             {
@@ -204,7 +222,14 @@ static inline int load_kernel_from_source(const char* cfg_file, cl_context conte
     cl_program program;
 
     // Generate Kernel source
+    lmice_warning_print("gen opencl task...\n");
     kernel_src = genopencltask(cfg_file);
+    lmice_warning_print("create program with source...\n");
+    {
+        FILE* fp = fopen("temp.cl", "w");
+        fprintf(fp, "%s", kernel_src);
+        fclose(fp);
+    }
 
     /// Create the compute program from the source buffer
     program = clCreateProgramWithSource(context, 1, (const char **) & kernel_src, NULL, &err);
@@ -213,7 +238,7 @@ static inline int load_kernel_from_source(const char* cfg_file, cl_context conte
         lmice_error_print("Failed to create compute program from source\n");
         return EXIT_FAILURE;
     }
-
+    lmice_warning_print("Build the program executable...");
     /// Build the program executable
     err = clBuildProgram(program, 1, &device_id, "-cl-std=CL1.2", NULL, NULL);
     if (err != CL_SUCCESS)
@@ -241,6 +266,8 @@ static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_
     psrc[0] = src;
     memset(src, 0, 8192*512);
     FILE* fp = fopen(bin_name, "rb");
+
+    lmice_warning_print("fp = %p\n", fp);
     if(!fp)
     {
         err = load_kernel_from_source(cfg_file, context, device_id, &program);
@@ -277,9 +304,6 @@ static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_
     }
     else
     {
-
-
-
         fseek(fp, 0L, SEEK_END);
         size = ftell(fp);
         fseek(fp, 0L, SEEK_SET);
@@ -316,6 +340,165 @@ static inline int load_kernel_from_binary(const char* bin_name, const char* cfg_
 
 }
 
+#define aligned_size(size, a) ((size + a-1)/a) *a
+
+struct sig_count_param
+{
+    char file_name[256];
+    int64_t prop_count;
+    int64_t sig_count;
+    int64_t msg_count;
+};
+static inline int get_sig_count(config_t cfg, struct sig_count_param** ppsc, int32_t* file_count)
+{
+    int count;
+    int i, ic;
+    char* bpos;
+    const char* bsep = "__";
+    const char* file;
+    const char* pattern;
+    const char* stype;
+    const char* sdate;
+    const char* stime;
+    char *name;
+    const char* outpath;
+    struct sig_count_param* psc;
+
+    stype = cfg_get_string(cfg, "insttype");
+    outpath = cfg_get_string(cfg, "signal_calc.outpath");
+    pattern = cfg_get_string(cfg, "signal_calc.pattern");
+    count = cfg_get_list_size(cfg, "signal_calc.files");
+
+    psc = (struct sig_count_param*)malloc( sizeof(struct sig_count_param) * count);
+    memset(psc, 0, sizeof(struct sig_count_param) * count);
+
+    *file_count = count;
+
+    lmice_debug_print("file count = %d\n", count);
+    for(i=0; i<count; ++i)
+    {
+        struct sig_count_param* scur = psc+i;
+        name = scur->file_name;
+
+        file = cfg_get_list_string(cfg, "signal_calc.files", i);
+        if(!file)
+        {
+            lmice_error_print("signal_calc files([string,...]) is incorrect\n");
+            return EXIT_FAILURE;
+        }
+
+        lmice_critical_print("file = %s\n", file);
+
+        bpos = strstr(file, bsep);
+        sdate = bpos -10;
+        stime = bpos+2;
+
+        strcat(name, outpath);
+        strcat(name, "/");
+        strcat(name, pattern);
+
+        replace_str(name, "%type", stype, strlen(stype));
+        replace_str(name, "%date", sdate, 10);
+        replace_str(name, "%time", stime, 8);
+
+        int brep_count = cfg_get_list_size(cfg, "optimizer.clreps");
+        for(ic=0; ic<brep_count/2; ++ic)
+        {
+            const char* srep = cfg_get_list_string(cfg, "optimizer.clreps", ic*2);
+            const char* drep = cfg_get_list_string(cfg, "optimizer.clreps", ic*2+1);
+            replace_str(name, srep, drep, strlen(drep));
+        }
+
+
+        {
+            /// Read prop_count from index file
+            long pc;
+            long sc;
+            long mc;
+            config_t idx;
+            struct stat st;
+            strcat(name, ".idx");
+            idx = cfg_init_file(name);
+            if(!idx)
+            {
+                lmice_error_print("cannot open index file %s\n", name);
+                return EXIT_FAILURE;
+            }
+            pc = cfg_get_integer(idx,   "size");
+            lmice_info_print("sub signals AKA prop_count[%s] size %ld\n", name, pc);
+            cfg_close(idx);
+
+            // Reset name extension; the number 4 is strlen('.idx')
+            name[strlen(name)-4] = '\0';
+
+            /// Read signal from forecast file
+
+            strcat(name, ".fc");
+            stat(name, &st);
+            sc = st.st_size;
+            if( (sc % (sizeof(double)*pc) ) != 0 || sc == 0)
+            {
+                lmice_error_print("forecast content is incorrect of size %ld %ld\n", sc, sc % (sizeof(double)*pc));
+                return EXIT_FAILURE;
+            }
+            sc = sc / (sizeof(double)*pc);
+
+            name[strlen(name)-3] = '\0';
+
+            /// Read market data from market file
+            strcat(name, ".dat");
+            stat(name, &st);
+            mc = st.st_size;
+            if(mc % sizeof(ChinaL1Msg) != 0 || mc == 0)
+            {
+                lmice_error_print("market content is incorrect of size %ld %ld\n", mc, mc % sizeof(ChinaL1Msg));
+                return EXIT_FAILURE;
+            }
+            mc = mc / sizeof(ChinaL1Msg);
+
+            name[strlen(name)-4] = '\0';
+
+            lmice_info_print("mc=%ld  sc=%ld pc=%ld\n", mc,
+                             sc, pc);
+
+            scur->msg_count = mc;
+            scur->prop_count = pc;
+            scur->sig_count = sc;
+        }
+
+
+    }
+
+    *ppsc = psc;
+
+    return 0;
+}
+
+struct host_side_param
+{
+    uint32_t prop_count;
+    uint32_t prop_count_an;
+    uint32_t prop_group;
+};
+
+void verify(
+        const float* param_data, /* param_count/4 * param_group */
+        const float* sig_data,   /* param_count/4 * msg_count */
+        //__global const ChinaL1Msg* msg_data,/* msg_count */
+        //__global const float3* mkt_data,    /* msg_count */
+        OutputMsg* output,         /* param_group */
+        //const float g_signal_multiple,      /* initialied multiple */
+        const int msg_count,                /* sizeof msg */
+        const int param_count,              /* sizeof parameter */
+        const int param_group,              /* sizeof param_data */
+        const int device_type,              /* 0-CPU    1-GPU */
+        const float* mkt_mid,    /* $:(clvec)-vectorized mid data */
+        const float* mkt_ask,    /* $:(clvec)-vectorized ask data */
+        const float* mkt_bid,     /* $:(clvec)-vectorized bid data */
+        const int* trd_lv,
+        const int* session_list,
+        const int session_count);
+
 /*****************************************************************************/
 /** main function
   All objects/bulk datas are 8-bytes aligned
@@ -348,6 +531,11 @@ int main(int argc, char** argv)
     float* mkt_mid = NULL;                     // Market mid data
     float* mkt_ask = NULL;                     // Market ask data
     float* mkt_bid = NULL;                     // Market bid data
+    int* trd_lv = NULL;                        // trade success or not
+	float *debug_log = NULL;
+
+	
+    cl_mem cl_trd_lv = NULL;
 
     /** Config param */
     config_t cfg;                       // Config object
@@ -356,12 +544,18 @@ int main(int argc, char** argv)
     int highest;                        // size of highest data
     int lowest;                         // size of lowest data
 
+    int* ses_data= NULL; //session list
+
     /** OpenCL param */
     size_t global = 65536;              // global domain size for our calculation
     size_t local=1;                       // local domain size for our calculation
 
     /** Device side param */
     cl_mem cl_output = NULL;                   // results
+
+#ifdef  GPU_DEBUG
+	cl_mem cl_debug = NULL;
+#endif
 
     cl_mem cl_prop_data = NULL;                // property data
     cl_mem cl_msg_data = NULL;                 // message data
@@ -370,6 +564,7 @@ int main(int argc, char** argv)
     cl_mem cl_mid_data = NULL;                 // Market mid data
     cl_mem cl_ask_data = NULL;                 // Market ask data
     cl_mem cl_bid_data = NULL;                 // Market bid data
+    cl_mem cl_ses_data = NULL;                 // Session list data
 
 
     cl_uint platforms;
@@ -390,6 +585,7 @@ int main(int argc, char** argv)
     const char* cfg_file=NULL;          // Config file
     const char* svalue = NULL;          // Config string value
     bool        bvalue = false;         // Config boolean value
+    int bverify = -1;
 
 
     long i = 0;
@@ -398,7 +594,7 @@ int main(int argc, char** argv)
     //setlocale(LC_TIME, "zh_CN.UTF-8");
 
     /** Process command line */
-    err = proc_cmdline(argc, argv, &dev_id, &cfg_file);
+    err = proc_cmdline(argc, argv, &dev_id, &cfg_file, &bverify);
     if(err != 0)
         return err;
 
@@ -487,10 +683,12 @@ int main(int argc, char** argv)
         strncpy(bin_name, name, strlen(name));
         sprintf(bin_name + strlen(bin_name), ".%d", dev_id);
 
+        lmice_warning_print("load kernel from binary (%s)\n", bin_name);
         err = load_kernel_from_binary(bin_name, cfg_file, context, device_id, &program);
     }
     else
     {
+
         err = load_kernel_from_source(cfg_file, context, device_id, &program);
     }
     if(err != CL_SUCCESS)
@@ -514,109 +712,158 @@ int main(int argc, char** argv)
         lmice_error_print("Error: Failed to retrieve kernel work group info! %d\n", err);
         return EXIT_FAILURE;
     }
+    //local = 128;
+
+    int64_t pc, sc,mc;
+    int32_t fc;
+    struct sig_count_param* psc;
+    get_sig_count(cfg, &psc, &fc);
+    lmice_info_print("count files=%d\n", fc);
+    for(i=0; i<fc; ++i)
+    {
+        struct sig_count_param* scur = psc+i;
+        pc = scur->prop_count;
+        sc = scur->sig_count;
+        mc = scur->msg_count;
+        if(mc == 0 || sc == 0 || pc == 0)
+        {
+            lmice_error_print("invalid state in file[%s]\n", scur->file_name);
+            return EXIT_FAILURE;
+        }
+        lmice_info_print("file=%s\n", scur->file_name);
+		
+	//	printf("== prop:%d - sig:%d - msg:%d ==\n", pc, sc, mc);
+    }
+
 
     /** Create the host side input and output */
     {
+
+
         lmice_info_print("Create the host side input and output\n");
-        const char* pattern;
-        const char* file;
-        const char* stype;
-        const char* sdate;
-        const char* stime;
-        char name[256] ={0};
-        char* bpos;
+        //        const char* pattern;
+        //        const char* file;
+        //        const char* stype;
+        //        const char* sdate;
+        //        const char* stime;
+        //        char name[256] ={0};
+        //        char* bpos;
         long sig_aligned = 1;
 
 
-        int brep_count;
-        const char* brep;
-        const char* bsep = "__";
+        //        int brep_count;
+        //        const char* brep;
+        //        const char* bsep = "__";
 
         size_t pd_size = 0; //(prop data size(bytes)
         size_t sg_size = 0; //signal data size(bytes)
         size_t fs_size = 0; //(float signal data size(bytes)
         size_t mm_size = 0; // market message size(bytes)
+        size_t op_size = 0; //output size
+        size_t hi_size = 0; //highest size
+        size_t lo_size = 0; //lowest size
+
+        int clvec_aligned=1;
+
 
         FILE* fp_sig;   //signal file
         FILE* fp_msg;   //market message file
 
-        const char* outpath = cfg_get_string(cfg, "signal_calc.outpath");
-        file = cfg_get_list_string(cfg, "signal_calc.files", 0);
-        if(!file)
-        {
-            lmice_error_print("signal_calc files is missing\n");
-            return EXIT_FAILURE;
-        }
+        //        const char* outpath = cfg_get_string(cfg, "signal_calc.outpath");
+        //        file = cfg_get_list_string(cfg, "signal_calc.files", 0);
+        //        if(!file)
+        //        {
+        //            lmice_error_print("signal_calc files is missing\n");
+        //            return EXIT_FAILURE;
+        //        }
 
-        bpos = strstr(file, bsep);
-        sdate = bpos -10;
-        stime = bpos+2;
-        stype = cfg_get_string(cfg, "insttype");
-        pattern = cfg_get_string(cfg, "signal_calc.pattern");
-        strcat(name, outpath);
-        strcat(name, "/");
-        strcat(name, pattern);
+        //        bpos = strstr(file, bsep);
+        //        sdate = bpos -10;
+        //        stime = bpos+2;
+        //        stype = cfg_get_string(cfg, "insttype");
+        //        pattern = cfg_get_string(cfg, "signal_calc.pattern");
+        //        strcat(name, outpath);
+        //        strcat(name, "/");
+        //        strcat(name, pattern);
 
-        //printf("%s\n", buff);
-        replace_str(name, "%type", stype, strlen(stype));
-        //printf("%s\n", buff);
-        replace_str(name, "%date", sdate, 10);
-        //printf("%s\n", buff);
-        replace_str(name, "%time", stime, 8);
-        //printf("%s\n", buff);
-        brep_count = cfg_get_list_size(cfg, "optimizer.clreps");
-        printf("brep_count = %d\n", brep_count);
-        for(i=0; i<brep_count/2; ++i)
-        {
-            bsep = cfg_get_list_string(cfg, "optimizer.clreps", i*2);
-            brep = cfg_get_list_string(cfg, "optimizer.clreps", i*2+1);
-            replace_str(name, bsep, brep, strlen(brep));
-        }
+        //        //printf("%s\n", buff);
+        //        replace_str(name, "%type", stype, strlen(stype));
+        //        //printf("%s\n", buff);
+        //        replace_str(name, "%date", sdate, 10);
+        //        //printf("%s\n", buff);
+        //        replace_str(name, "%time", stime, 8);
+        //        //printf("%s\n", buff);
+        //        brep_count = cfg_get_list_size(cfg, "optimizer.clreps");
+        //        printf("brep_count = %d\n", brep_count);
+        //        for(i=0; i<brep_count/2; ++i)
+        //        {
+        //            bsep = cfg_get_list_string(cfg, "optimizer.clreps", i*2);
+        //            brep = cfg_get_list_string(cfg, "optimizer.clreps", i*2+1);
+        //            replace_str(name, bsep, brep, strlen(brep));
+        //        }
 
         // Read prop_count from index file
-        {
-            config_t idx;
-            strcat(name, ".idx");
-            printf("nm = %s\n", name);
-            idx = cfg_init_file(name);
-            if(!idx)
-            {
-                lmice_error_print("cannot open index file %s\n", name);
-                return EXIT_FAILURE;
-            }
-            prop_count = cfg_get_integer(idx,   "size");
-            lmice_info_print("sub signals AKA prop_count size %u\n", prop_count);
-            cfg_close(idx);
+        //        {
+        //            config_t idx;
+        //            strcat(name, ".idx");
+        //            printf("nm = %s\n", name);
+        //            idx = cfg_init_file(name);
+        //            if(!idx)
+        //            {
+        //                lmice_error_print("cannot open index file %s\n", name);
+        //                return EXIT_FAILURE;
+        //            }
+        //            prop_count = cfg_get_integer(idx,   "size");
+        //            lmice_info_print("sub signals AKA prop_count size %u\n", prop_count);
+        //            cfg_close(idx);
 
-            // Reset name extension; the number 4 is strlen('.idx')
-            name[strlen(name)-4] = '\0';
-        }
+        //            // Reset name extension; the number 4 is strlen('.idx')
+        //            name[strlen(name)-4] = '\0';
+        //        }
 
+        prop_count = pc;
         sig_aligned = cfg_get_integer(cfg,  "optimizer.aligned");
-        prop_count_an = ((prop_count + sig_aligned -1)/sig_aligned)*sig_aligned;
+        prop_count_an = aligned_size(prop_count, sig_aligned);
         lmice_info_print("prop_count aligned AKA prop_count_an size %u\n", prop_count_an);
 
         prop_seed =     cfg_get_integer(cfg,    "optimizer.seed");
         prop_pos =      cfg_get_integer(cfg,    "optimizer.pos");
         prop_group =    cfg_get_integer(cfg,    "optimizer.group");
         prop_trial =    cfg_get_integer(cfg,    "optimizer.trial");
-
-        // Calc prop_data size sizeof(float)*prop_count_an*prop_group
+        
+	// Calc prop_data size sizeof(float)*prop_count_an*prop_group
         pd_size = sizeof(PROP_TYPE)*prop_count_an*prop_group;
 
         // Read signal from forecast file
-        strcat(name, ".fc");
-        fp_sig = fopen(name, "rb");
-        fseek(fp_sig, 0L, SEEK_END);
-        sg_size = ftell(fp_sig);
-        fseek(fp_sig, 0L, SEEK_SET);
-        if(sg_size % (sizeof(double)*prop_count) != 0 || sg_size == 0)
+        //        strcat(name, ".fc");
+        //        fp_sig = fopen(name, "rb");
+        //        fseek(fp_sig, 0L, SEEK_END);
+        //        sg_size = ftell(fp_sig);
+        //        fseek(fp_sig, 0L, SEEK_SET);
+        //        if(sg_size % (sizeof(double)*prop_count) != 0 || sg_size == 0)
+        //        {
+        //            lmice_error_print("forecast content is incorrect of size %ld %ld\n", sg_size, sg_size % (sizeof(double)*prop_count));
+        //            return EXIT_FAILURE;
+        //        }
+        //        sig_count = sg_size / (sizeof(double)*prop_count);
+        //        sg_size = sizeof(double)*prop_count_an*sig_count;
+
+        clvec_aligned = cfg_get_integer(cfg, "optimizer.clvec");
+        sig_count= 0;
+        sg_size = 0;
+        mm_size = 0;
+        for(i=0;i<fc;++i)
         {
-            lmice_error_print("forecast content is incorrect of size %ld %ld\n", sg_size, sg_size % (sizeof(double)*prop_count));
-            return EXIT_FAILURE;
+            int64_t an;
+            struct sig_count_param *scur = psc+i;
+            an = aligned_size(scur->sig_count, clvec_aligned);
+            sig_count += an;
+            sg_size += sizeof(double)*prop_count_an*an;
+
+            an = aligned_size(scur->msg_count, clvec_aligned);
+            mm_size += sizeof(ChinaL1Msg) * an;
+
         }
-        sig_count = sg_size / (sizeof(double)*prop_count);
-        sg_size = sizeof(double)*prop_count_an*sig_count;
 
 
         // Generate float type signal data
@@ -624,17 +871,18 @@ int main(int argc, char** argv)
 
 
         // Read market data from market file
-        strcpy(name+strlen(name)-3, ".dat");
-        fp_msg = fopen(name, "rb");
-        fseek(fp_msg, 0L, SEEK_END);
-        mm_size = ftell(fp_msg);
-        fseek(fp_msg, 0L, SEEK_SET);
-        if(mm_size % sizeof(ChinaL1Msg) != 0 || mm_size == 0)
-        {
-            lmice_error_print("market content is incorrect of size %ld %ld\n", mm_size, mm_size % sizeof(ChinaL1Msg));
-            return EXIT_FAILURE;
-        }
+        //        strcpy(name+strlen(name)-3, ".dat");
+        //        fp_msg = fopen(name, "rb");
+        //        fseek(fp_msg, 0L, SEEK_END);
+        //        mm_size = ftell(fp_msg);
+        //        fseek(fp_msg, 0L, SEEK_SET);
+        //        if(mm_size % sizeof(ChinaL1Msg) != 0 || mm_size == 0)
+        //        {
+        //            lmice_error_print("market content is incorrect of size %ld %ld\n", mm_size, mm_size % sizeof(ChinaL1Msg));
+        //            return EXIT_FAILURE;
+        //        }
         msg_count = mm_size / sizeof(ChinaL1Msg);
+
 
         // Generate market data vectorized
 
@@ -649,11 +897,29 @@ int main(int argc, char** argv)
         if(mult != 0)
             prop_multi = mult;
 
+        // Output data
+        op_size = sizeof(OutputMsg) * prop_group; //output
+        //Highest size
+        hi_size = (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest;
+        lo_size = (sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest;
+
         /** Create memory bulk at host side*/
         hb_size =  pd_size + sg_size + fs_size + mm_size + sizeof(float)*3*msg_count*2 //mkt
-                + sizeof(OutputMsg) * prop_group //output
-                +(sizeof(OutputMsg) + sizeof(float) * prop_count)* highest
-                +(sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest;
+                + op_size
+                + hi_size
+                +lo_size;
+        hb_size += sizeof(int)*msg_count;
+
+#ifdef GPU_DEBUG
+		hb_size += 1024*sizeof(float);
+#endif	
+        lmice_info_print("host size %lu\n"
+                         "\tpd:%lu\tsg:%lu\tfs:%lu\tmm:%lu\tsg:%u\n"
+                         "\top:%lu\thi:%lu\tlo:%lu\tmc:%u\n", hb_size,
+                         pd_size, sg_size, fs_size, mm_size, sig_count,
+                         op_size, hi_size, lo_size
+                         ,msg_count);
+
         hb_size = ((hb_size / (1024*1024*2)) + 1)*(1024*1024*2);
         host_bulk = mmap(NULL,
                          hb_size,
@@ -666,12 +932,28 @@ int main(int argc, char** argv)
                  #endif
                          0
                          );
+
         if(host_bulk == MAP_FAILED)
         {
-            lmice_error_print("Create memory bulk at host size[%luMB] failed[%p]\n", hb_size/(1024*1024), host_bulk);
-            perror(NULL);
-            return EXIT_FAILURE;
+            lmice_error_print("Create memory bulk by host super page size[%luMB] failed[%p]\n", hb_size/(1024*1024), host_bulk);
+            host_bulk = mmap(NULL,
+                             hb_size,
+                             PROT_READ|PROT_WRITE,
+                             MAP_ANON|MAP_PRIVATE,
+                 #if defined(__MACH__)
+                             SUPERPAGE_NONE,
+                 #elif defined(__linux__)
+                             MAP_HUGETLB,
+                 #endif
+                             0
+                             );
+            if(host_bulk == MAP_FAILED) {
+                lmice_error_print("Create memory bulk by host size[%luMB] failed[%p]\n", hb_size/(1024*1024), host_bulk);
+                perror(NULL);
+                return EXIT_FAILURE;
+            }
         }
+		memset(host_bulk, 0, hb_size);
 
         // Init pointers
         prop_data = (float*)host_bulk;
@@ -685,14 +967,58 @@ int main(int argc, char** argv)
         results = (OutputMsg*)((char*)mkt_bid+ sizeof(float)*msg_count);
         highest_data = (float*)((char*)results + sizeof(OutputMsg) * prop_group);
         lowest_data = (float*)((char*)highest_data + (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
+        trd_lv = (int*)((char*)lowest_data+(sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
+		debug_log = (float*)trd_lv + (msg_count * sizeof(int));
+		
+        //session data
+        ses_data = (int*)malloc(sizeof(int)*fc);
+        clvec_aligned = cfg_get_integer(cfg, "optimizer.clvec");
+        for(i=0;i<fc;++i)
+        {
+            struct sig_count_param* scur=psc+i;
+            ses_data[i] = aligned_size(scur->msg_count, clvec_aligned);
+        }
 
         // Read Signal Data
         memset(sig_data, 0, sg_size);
-        for(i=0; i<sig_count; ++i)
+        size_t pos = 0;
+        char name[256];
+        for(i=0; i<fc; ++i)
         {
-            fread(sig_data+i*prop_count_an, sizeof(double)*prop_count, 1, fp_sig);
+
+            size_t rt = 0;
+            struct sig_count_param *scur = psc+i;
+            memcpy(name, scur->file_name, 256);
+            strcat(name, ".fc");
+			printf("======================= fopen:%s\n", name);
+            fp_sig = fopen(name, "rb");
+            for(;;)
+            {
+                rt = fread(sig_data+pos*prop_count_an, sizeof(double)*prop_count, 1, fp_sig);
+
+/*				
+				static int ppp = 0;
+				if( ppp <= 999 )
+				{
+					double *ttt = sig_data+pos*prop_count_an;
+					printf("sig- %lf,%lf,%lf,%lf,%lf,%lf\n",  *ttt, *(ttt+1), *(ttt+2), *(ttt+3), *(ttt+4), *(ttt+5) );
+				}
+*/				
+				
+                if(rt == 0)
+                {
+                    break;
+                }
+                ++pos;
+                if(pos > sig_count)
+                {
+                    lmice_error_print("read sig data failed too large\n");
+                    return E2BIG;
+                }
+            }
+            fclose(fp_sig);
+            pos = aligned_size(pos, clvec_aligned);
         }
-        fclose(fp_sig);
 
         // Construct signal data (float version)
         memset(fsig_data, 0, fs_size);
@@ -705,8 +1031,26 @@ int main(int argc, char** argv)
         }
 
         // Read market message data
-        fread(msg_data, mm_size, 1, fp_msg);
-        fclose(fp_msg);
+        pos = 0;
+        for(i=0; i<fc; ++i)
+        {
+            size_t rt=0;
+            struct sig_count_param *scur = psc+i;
+            memcpy(name, scur->file_name, 256);
+            strcat(name, ".dat");
+            fp_msg = fopen(name, "rb");
+            do {
+                rt = fread(msg_data+pos, sizeof(ChinaL1Msg), 1, fp_msg);
+                //printf("rt = %lu pos = %lu\n", rt ,pos);
+                if(rt != 1)
+                    break;
+                pos ++;
+            } while(rt != 0);
+            pos = aligned_size(pos, clvec_aligned);
+            printf("return %lu\n", pos);
+            fclose(fp_msg);
+            printf("reading ...%s, pos=%lu\n", name, pos);
+        }
 
         // Construct market data(vectorized version)
         for(i=0; i<msg_count; ++i)
@@ -719,15 +1063,117 @@ int main(int argc, char** argv)
             *(mkt_mid+i) = *(mkt+0);
             *(mkt_ask+i) = *(mkt+1);
             *(mkt_bid+i) = *(mkt+2);
+            //printf("%lf\n", pc->m_offer);
         }
+
+//        pintf("pos :16000, sig:\n");
+//        for(i=0; i<prop_count_an; ++i)
+//        {
+//            printf("sig[i]=%lf\t", sig_data[16000*prop_count_an+i]);
+//        }
+//        for(i=0; i<prop_count_an; ++i)
+//        {
+//            printf("ask[i]=%lf\t", mkt_ask[16000+i]);
+//        }
+//        printf("\n");
 
         // Init result data
         memset(highest_data, 0, (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
         memset(lowest_data, 'c',  (sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
 
-
-
     }
+
+    prng_t mt_trd = prng_init_seed(prop_seed);
+    prng_t mt19937 = prng_init_seed(prop_seed);
+    gauss_t gauss_rand = gauss_init_seed(prop_seed);
+    for(j=0; j<prop_pos; ++j)
+    {
+        prng_next(mt19937);
+        prng_next(mt_trd);
+    }
+
+		printf( " prop_data_1:%f, sig_data_1:%lf, fsig_data_1:%f, msg_data_1:%lf-%lf, mkt_data_1:%f-%f-%f, mkt_mid:%f, mkt_ask:%f, mkt_bid:%f, results_1:%d\n", *prop_data, *sig_data, *fsig_data, msg_data->m_bid,  msg_data->m_offer, *mkt_data,
+		*(mkt_data+1), *(mkt_data+2), *mkt_mid, *mkt_ask, *mkt_bid, results->m_order );
+	
+    if(bverify >= 0 && bverify < 1000)
+    {
+        int vpos = 0;
+        FILE* fp = fopen("highest.csv", "r");
+        char *line = NULL;
+        size_t linecap = 0;
+        ssize_t linelen;
+        linelen = getline(&line, &linecap, fp);
+
+        for(vpos =0; vpos <= bverify; ++vpos)
+        {
+            //verify mode
+            linelen = getline(&line, &linecap, fp);
+
+            float buf[128];
+            char *test = line;
+            char *sep = ",";
+            char *word, *phrase, *brkt, *brkb;
+            i=0;
+            memset(buf, 0, sizeof(float)*128);
+            printf("double test[]={");
+            for (word = strtok_r(test, sep, &brkt);
+                 word;
+                 word = strtok_r(NULL, sep, &brkt))
+            {
+                buf[i] = atof(word);
+                //printf("%s %f\n", word, buf[i]);
+                if(i>=2 && i<prop_count+1)
+                    printf("%s, ", word);
+                if(i%4 == 0)
+                    printf("\n");
+                if(i == prop_count +1)
+                    printf("%s};\n", word);
+                i++;
+            }
+
+            for(i=0; i<prop_count_an; ++i)
+            {
+                prop_data[i] = buf[i+2];
+                printf("%f\t", prop_data[i]);
+            }
+            printf("\n");
+
+            for(j=0; j< msg_count; ++j)
+            {
+                trd_lv[j] = prng_next(mt_trd) < 0.4?1:0;
+                //trd_lv[j] =1;
+            }
+
+            verify(prop_data,
+                   fsig_data,
+                   results,
+                   msg_count,
+                   prop_count_an,
+                   prop_group,
+                   0,
+                   mkt_mid,
+                   mkt_ask,
+                   mkt_bid,
+                   trd_lv,
+                   ses_data,
+                   fc);
+			
+            if(results[0].m_result>0)
+            {
+	            lmice_critical_print("output[%d] order:%d\tPL:+%f\n", vpos,
+    	                             results[0].m_order, results[0].m_result);
+            }
+            else
+            {
+                lmice_critical_print("output[%d] order:%d\tPL:%f\n", vpos,
+                                     results[0].m_order, results[0].m_result);
+            }
+
+        }
+        return 0;
+    }
+
+    cl_ses_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int) * fc, NULL, NULL);
 
     cl_mid_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
     cl_ask_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(float) * msg_count, NULL, NULL);
@@ -739,11 +1185,19 @@ int main(int argc, char** argv)
     cl_prop_data = clCreateBuffer(context,  CL_MEM_READ_ONLY,  prop_count_an*sizeof(PROP_TYPE)*prop_group, NULL, NULL);
     //cl_mkt_data = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(float) * msg_count * 3, NULL, NULL);
     cl_output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(OutputMsg) * prop_group, NULL, NULL);
+
+#ifdef GPU_DEBUG
+	cl_debug = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 1024*sizeof(float), NULL, NULL);
+	//printf("==%x==\n", cl_debug);
+#endif 
+	
     if (!cl_sig_data || !cl_prop_data || !cl_output)// || !cl_mkt_data)
     {
         lmice_error_print("Error: Failed to allocate device memory! sig=%p prop=%p output=%p mkt=%p prop_data=%p\n", cl_sig_data, cl_prop_data, cl_output, cl_mkt_data, prop_data);
         exit(1);
     }
+
+    cl_trd_lv = clCreateBuffer(context,  CL_MEM_READ_ONLY,  msg_count*sizeof(int), NULL, NULL);
 
     //return 0;
     /// Set the arguments to our compute kernel
@@ -753,6 +1207,10 @@ int main(int argc, char** argv)
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_sig_data);
     //err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_mkt_data);
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_output);
+#ifdef GPU_DEBUG
+	err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_debug);
+	//printf("1======%d=======\n", err);
+#endif
     //err |= clSetKernelArg(kernel, i++, sizeof(float), &prop_multi);
     err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &msg_count);
     err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &prop_count_an);
@@ -761,6 +1219,11 @@ int main(int argc, char** argv)
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_mid_data);
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_ask_data);
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_bid_data);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_trd_lv);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_ses_data);
+    err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &fc);
+
+	
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to set kernel arguments! %d\n", err);
@@ -775,6 +1238,9 @@ int main(int argc, char** argv)
         return EXIT_FAILURE;
     }
 
+
+    err = clEnqueueWriteBuffer(commands, cl_ses_data, CL_TRUE, 0, sizeof(int) * fc, ses_data, 0, NULL, NULL);
+
     err = clEnqueueWriteBuffer(commands, cl_mid_data, CL_TRUE, 0, sizeof(float) * msg_count, mkt_mid, 0, NULL, NULL);
     err = clEnqueueWriteBuffer(commands, cl_ask_data, CL_TRUE, 0, sizeof(float) * msg_count, mkt_ask, 0, NULL, NULL);
     err = clEnqueueWriteBuffer(commands, cl_bid_data, CL_TRUE, 0, sizeof(float) * msg_count, mkt_bid, 0, NULL, NULL);
@@ -787,12 +1253,12 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-//    err = clEnqueueWriteBuffer(commands, cl_msg_data, CL_TRUE, 0, sizeof(struct ChinaL1Msg) * msg_count, msg_data, 0, NULL, NULL);
-//    if (err != CL_SUCCESS)
-//    {
-//        printf("Error: Failed to write msg_data to source array!\n");
-//        exit(1);
-//    }
+    //    err = clEnqueueWriteBuffer(commands, cl_msg_data, CL_TRUE, 0, sizeof(struct ChinaL1Msg) * msg_count, msg_data, 0, NULL, NULL);
+    //    if (err != CL_SUCCESS)
+    //    {
+    //        printf("Error: Failed to write msg_data to source array!\n");
+    //        exit(1);
+    //    }
 
     //err = clEnqueueWriteBuffer(commands, cl_mkt_data, CL_TRUE, 0, sizeof(float) * 3 * msg_count, mkt_data, 0, NULL, NULL);
     if (err != CL_SUCCESS)
@@ -801,11 +1267,7 @@ int main(int argc, char** argv)
         exit(1);
     }
 
-    prng_t mt19937 = prng_init_seed(prop_seed);
-    for(j=0; j<prop_pos; ++j)
-    {
-        prng_next(mt19937);
-    }
+
     int64_t tbegin;
     get_tick_count(&tbegin);
     //lmice_info_print("begin process\n");
@@ -819,8 +1281,14 @@ int main(int argc, char** argv)
             for(;pc_idx<prop_count; ++pc_idx)
             {
                 //prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
-                prop_data[j*prop_count_an+pc_idx] = prop_multi * 2 *(prng_next(mt19937) - 0.5);
+                //prop_data[j*prop_count_an+pc_idx] = prop_multi * 2 *(prng_next(mt19937) - 0.5);
+                prop_data[j*prop_count_an+pc_idx] = prop_multi * gauss_next(gauss_rand);
             }
+        }
+        for(j=0; j< msg_count; ++j)
+        {
+            trd_lv[j] = prng_next(mt_trd) < 0.4?1:0;
+            //trd_lv[j] =1;
         }
         cl_event event;
         err = clEnqueueWriteBuffer(commands, cl_prop_data, CL_TRUE, 0, sizeof(PROP_TYPE) * prop_count_an * prop_group, prop_data, 0, NULL, NULL);
@@ -829,6 +1297,7 @@ int main(int argc, char** argv)
             printf("Error: Failed to write prop_data to source array!\n");
             exit(1);
         }
+        err = clEnqueueWriteBuffer(commands, cl_trd_lv, CL_TRUE, 0, sizeof(int) * msg_count, trd_lv, 0, NULL, NULL);
 
 
         // Execute the kernel over the entire range of our 1d input data set
@@ -852,24 +1321,44 @@ int main(int argc, char** argv)
         {
             cl_ulong start, end;
             clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END,
-            sizeof(cl_ulong), &end, NULL);
+                                    sizeof(cl_ulong), &end, NULL);
             clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START,
-            sizeof(cl_ulong), &start, NULL);
+                                    sizeof(cl_ulong), &start, NULL);
             float executionTimeInMilliseconds = (end - start) * 1.0e-6f;
             lmice_info_print("calculate process finished prop_group-%u time(ms)-%f\n", prop_group,executionTimeInMilliseconds);
         }
 
 
         /// Read back the results from the device to verify the output
-        err = clEnqueueReadBuffer( commands, cl_output, CL_TRUE, 0, sizeof(OutputMsg) * prop_group, results, 0, NULL, NULL );
+	err = clEnqueueReadBuffer( commands, cl_output, CL_TRUE, 0, sizeof(OutputMsg) * prop_group, results, 0, NULL, NULL );
+	
         if (err != CL_SUCCESS)
         {
             printf("Error: Failed to read output array! %d\n", err);
             exit(1);
         }
+        clFinish(commands);
+
+#ifdef GPU_DEBUG
+
+		/// Read back the debug log from the device
+	err = clEnqueueReadBuffer( commands, cl_debug, CL_TRUE, 0, 1024*sizeof(float) , debug_log, 0, NULL, NULL );
+
+		if (err != CL_SUCCESS)
+		{
+			printf("Error: Failed to read debug array! %d\n", err);
+			exit(1);
+		}
+		clFinish(commands);
+
+		//printf("1====================%s==================\n", debug_log);
+
+#endif
 
         for(j=0; j<prop_group; ++j)
         {
+            if(results[j].m_order <50*fc)
+                continue;
             float rt = results[j].m_result;
             float* pd = prop_data +j*prop_count_an;
             int rt_idx;
@@ -919,13 +1408,13 @@ int main(int argc, char** argv)
     int64_t tend;
     get_tick_count(&tend);
     lmice_critical_print("Calc time %lld\n", tend-tbegin);
-    printf("best %f  %f\n", highest_data[0], highest_data[1]);
+    OutputMsg* om = (OutputMsg*)((char*)highest_data);
+    printf("best %d  %f\n", om->m_order, om->m_result);
     {
         int pc_idx;
         for(pc_idx = 0; pc_idx < prop_count; ++pc_idx)
         {
             printf("a[%d] = %f\t", pc_idx, highest_data[2+pc_idx]);
-
         }
         printf("\n");
     }

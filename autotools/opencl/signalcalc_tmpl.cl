@@ -329,8 +329,11 @@ void deal_order(g_status* conf, CUstpFtdcInputOrderField* g_order)
             conf->m_buy_pos += g_order->Volume;
         }
 
+//printf("buy %f, %f, fee: %f  pl:%f\\n", conf->m_money, money, fee, conf->m_money - money);
         //维护PL
         conf->m_money = conf->m_money - money - fee;
+        conf->m_order += 1;
+
     }
     else    //卖
     {
@@ -342,10 +345,12 @@ void deal_order(g_status* conf, CUstpFtdcInputOrderField* g_order)
         {
             conf->m_sell_pos += g_order->Volume;
         }
-
+//printf("sel %f, %f, fee: %f  pl:%f\\n", conf->m_money, money, fee, conf->m_money + money);
         //维护PL
         conf->m_money = conf->m_money + money - fee;
         conf->m_order += 1;
+
+
     }
 }
 
@@ -399,6 +404,7 @@ __kernel void signal_parameters_simulation (
     //__global const ChinaL1Msg* msg_data,/* msg_count */
     //__global const float3* mkt_data,    /* msg_count */
     __global OutputMsg* output,         /* param_group */
+    __global char* debug_log,
     //const float g_signal_multiple,      /* initialied multiple */
     const int msg_count,                /* sizeof msg */
     const int param_count,              /* sizeof parameter */
@@ -406,75 +412,118 @@ __kernel void signal_parameters_simulation (
     const int device_type,              /* 0-CPU    1-GPU */
     __global const $:(vec_type)* mkt_mid,    /* $:(clvec)-vectorized mid data */
     __global const $:(vec_type)* mkt_ask,    /* $:(clvec)-vectorized ask data */
-    __global const $:(vec_type)* mkt_bid     /* $:(clvec)-vectorized bid data */
+    __global const $:(vec_type)* mkt_bid,     /* $:(clvec)-vectorized bid data */
+    __global const int* trd_lv,
+    __global const int* session_list,
+    const int session_count
     )
 {
     int param_pos = get_global_id(0);    /* current position of parameter set */
     int j;
     int i;
+    int scur;
+    int sstart;
+    int send;
+    //float last_ask;
+    //float last_bid;
+
+	//*(debug_log+8) = 0;
+	char test1[10];
+	//memset(test1, 0, 10);
+	//debug_log[0] = '1';
+	//debug_log[1] = '2';
+	//debug_log[2] = '3';
+
+	//strcpy(debug_log, test1);
+
     CUstpFtdcInputOrderField g_order;
     g_status conf;
 
     if( param_pos >= param_group)
         return;
-
-    conf.m_max_pos = 2;
-    conf.m_buy_pos = 0;
-    conf.m_sell_pos = 0;
-    conf.m_multiple=10;
-    conf.m_fee_rate=0.0001f;
-    conf.m_fee_vol = 0.0f;
-    conf.m_money = 0.0f;
-    conf.m_order = 0;
-
-    float last_ask;
-    float last_bid;
+//    if(param_pos != 0)
+//    return;
+    //printf("session_cont=%d msg_count=%d\\n", session_count, msg_count);
 
 
-    output[param_pos].m_result=0;
+    output[param_pos].m_result=0.0f;
     output[param_pos].m_order=0;
-    for(j = 0; j < msg_count / $:(clvec); ++j)
+    sstart = 0;
+    send = 0;
+    for(scur = 0; scur < session_count; ++scur)
     {
-        int msg_pos = j*$:(clvec);
-        int pm_pos = param_pos* $:(param_count/4);
-        $#//for pm_idx in range(msg_range):
-        $#//    float4 pm$:(pm_idx) = param_data[pm_pos + $:(pm_idx)];
-        $:(vec_type) signal = ($:(vec_type)) (
-                $:str("\\n\\t\\t").join("dot(param_data[pm_pos+{pm_idx}], sig_data[(msg_pos + {msg_idx} )*{msg_range} + {pm_idx}]){seps}".format(msg_range=msg_range, pm_idx=pm_idx, msg_idx=msg_idx, seps='+' if pm_idx < msg_range-1 else "" if msg_idx == clvec-1 else ",\\n" ) for msg_idx in range(clvec) for pm_idx in range(msg_range) ) );
+        conf.m_max_pos = 1;
+        conf.m_buy_pos = 0;
+        conf.m_sell_pos = 0;
+        conf.m_multiple=10;
+        conf.m_fee_rate= 0.0f;//0.0001f;
+        conf.m_fee_vol = 3.03f;
+        conf.m_money = 0.0f;
+        conf.m_order = 0;
+        sstart += send;
+        send = session_list[scur];
+        //printf("start:%d\\tsend:%d\\n", sstart, send);
+        //continue;
 
-        //signal = signal * 2.2f;
-        $:(vec_type) forecast = mad(mkt_mid[j], signal, mkt_mid[j]);
-        float* pfc = (float*)&forecast;
-        __global float* pask = (__global float*)&(mkt_ask[j]);
-        __global float* pbid = (__global float*)&(mkt_bid[j]);
-$ ask = 'pask[i]'
-$ bid = 'pbid[i]'
-$ fc = 'pfc[i]'
-$if clvec == 1:
-    $ ask = '*pask'
-    $ bid = '*pbid'
-    $ fc = '*pfc'
-$#end-if
-        for(i=0; i<$:(clvec);++i)
+        for(j = sstart / $:(clvec); j < (sstart+send) / $:(clvec); ++j)
         {
-            if($(fc) > $(ask))
-            {
-                g_order.LimitPrice = $(ask);
-                do_ask(&conf, &g_order);
-            }
-            else if($(fc) < $(bid))
-            {
-                g_order.LimitPrice = $(bid);
-                do_bid(&conf, &g_order);
-            }
-        }
-    }
-    last_ask = ((__global float*)&(mkt_ask[msg_count / $:(clvec)-1]))[0];
-    last_bid = ((__global float*)&(mkt_bid[msg_count / $:(clvec)-1]))[0];
-    flatten(&conf,//2400.0f,2400.0f
-        last_ask,last_bid
-        );
+            int msg_pos = j*$:(clvec);
+            int pm_pos = param_pos* $:(param_count/4);
 
-    output[param_pos].m_result=conf.m_money;
-    output[param_pos].m_order=conf.m_order;
+            $:(vec_type) signal = ($:(vec_type)) (
+                    $:str("\\n\\t\\t").join("dot(param_data[pm_pos+{pm_idx}], sig_data[(msg_pos + {msg_idx} )*{msg_range} + {pm_idx}]){seps}".format(msg_range=msg_range, pm_idx=pm_idx, msg_idx=msg_idx, seps='+' if pm_idx < msg_range-1 else "" if msg_idx == clvec-1 else ",\\n" ) for msg_idx in range(clvec) for pm_idx in range(msg_range) ) );
+
+            //signal = signal * 2.2f;
+            $:(vec_type) forecast = mad(mkt_mid[j], signal, mkt_mid[j]);
+            float* pfc = (float*)&forecast;
+            __global float* pask = (__global float*)&(mkt_ask[j]);
+            __global float* pbid = (__global float*)&(mkt_bid[j]);
+    $ ask = 'pask[i]'
+    $ bid = 'pbid[i]'
+    $ fc = 'pfc[i]'
+    $if clvec == 1:
+        $ ask = '*pask'
+        $ bid = '*pbid'
+        $ fc = '*pfc'
+    $#end-if
+            for(i=0; i<$:(clvec);++i)
+            {
+//                if(trd_lv[msg_pos+i] == 0)
+//                    continue;
+
+                if($(fc) > $(ask))
+                {
+                    g_order.LimitPrice = $(ask);
+                    do_ask(&conf, &g_order);
+                }
+                else if($(fc) < $(bid))
+                {
+                    g_order.LimitPrice = $(bid);
+                    do_bid(&conf, &g_order);
+                }
+            }
+
+//            if(j > 26110 / $:(clvec)) {
+//            printf("sig: %f\\t%f, mid:%f\\t%f\\t%f\\n",
+//                forecast[0],signal[0],
+//                mkt_mid[j][0], mkt_ask[j][0], mkt_bid[j][0]
+//                );
+//            }
+        }//end for-j
+
+		
+        
+        j = (sstart+send) / $:(clvec) -1;
+        last_ask = ((__global float*)&(mkt_ask[j]))[0];
+        last_bid = ((__global float*)&(mkt_bid[j]))[0];
+        flatten(&conf,//2400.0f,2400.0f
+            last_ask,last_bid
+            );
+        //printf("mon %f ord:%d\\n", conf.m_money, conf.m_order);
+        output[param_pos].m_result += conf.m_money;
+        output[param_pos].m_order += conf.m_order;
+    }//end for-scur
+    //printf("mon %f ord:%d\\n", output[param_pos].m_result, output[param_pos].m_order);
 }
+
+
