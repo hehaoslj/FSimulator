@@ -496,6 +496,7 @@ void verify(
         //__global const ChinaL1Msg* msg_data,/* msg_count */
         //__global const float3* mkt_data,    /* msg_count */
         OutputMsg* output,         /* param_group */
+        float* debug_log,
         //const float g_signal_multiple,      /* initialied multiple */
         const int msg_count,                /* sizeof msg */
         const int param_count,              /* sizeof parameter */
@@ -504,6 +505,8 @@ void verify(
         const float* mkt_mid,    /* $:(clvec)-vectorized mid data */
         const float* mkt_ask,    /* $:(clvec)-vectorized ask data */
         const float* mkt_bid,     /* $:(clvec)-vectorized bid data */
+        const float* last_ask,    /* last ask price every session */
+        const float* last_bid,    /* last bid price every session */
         const int* trd_lv,
         const int* session_list,
         const int session_count);
@@ -1173,6 +1176,7 @@ int main(int argc, char** argv)
             verify(prop_data,
                    fsig_data,
                    results,
+                   debug_log,
                    msg_count,
                    prop_count_an,
                    prop_group,
@@ -1180,6 +1184,8 @@ int main(int argc, char** argv)
                    mkt_mid,
                    mkt_ask,
                    mkt_bid,
+                   last_ask,
+                   last_bid,
                    trd_lv,
                    ses_data,
                    fc);

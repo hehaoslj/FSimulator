@@ -156,14 +156,6 @@ target_link_libraries(forecaster_shared
 
 )
 ADD_DEPENDENCIES(forecaster_shared eal_static)
-#ADD_DEPENDENCIES(forecaster_shared libforecaster_static)
-
-
-#LIST(REMOVE_ITEM forecaster_SRCS clibapp.cpp)
-#Shared EAL Library
-#ADD_LIBRARY(eal SHARED ${EAL_SRCS})
-#Static EAL Library
-#ADD_LIBRARY(forecaster STATIC ${forecaster_SRCS})
 
 #Extra files
 LIST(APPEND py_src conf_linux.json meta.json)
@@ -253,7 +245,7 @@ set_property(TARGET forecastertask_lib PROPERTY IMPORTED_LOCATION
 list(APPEND clean_extra_files "${CMAKE_BINARY_DIR}/forecastertask.c"
     "${CMAKE_BINARY_DIR}/forecastertask.o"
     "${CMAKE_BINARY_DIR}/libforecastertask-1.0${dll_ext}")
-message("forecastertask_lib: ${CMAKE_BINARY_DIR}/libforecastertask-1.0${dll_ext}  ${forecastertask_lib}")
+
 
 #Shared optimizetask Pypy
 add_custom_command(
@@ -270,8 +262,6 @@ list(APPEND clean_extra_files "${CMAKE_BINARY_DIR}/optimizetask.c"
     "${CMAKE_BINARY_DIR}/liboptimizetask-1.0${dll_ext}")
 
 set_directory_properties(PROPERTIES ADDITIONAL_MAKE_CLEAN_FILES "${clean_extra_files}")
-#message("clean ${clean_extra_files}")
-
 
 
 #App testlib cpp

@@ -193,12 +193,12 @@ void verify(
     send = 0;
     for(scur = 0; scur < session_count; ++scur)
     {
-        conf.m_max_pos = 2;
+        conf.m_max_pos = 1;
         conf.m_buy_pos = 0;
         conf.m_sell_pos = 0;
-        conf.m_multiple=10;
-        conf.m_fee_rate=0.0001f;
-        conf.m_fee_vol = 0.0f;
+        conf.m_multiple=5;
+        conf.m_fee_rate=0.0f;//0.0001f;
+        conf.m_fee_vol = 3.03f;//0.0f;
         conf.m_money = 0.0f;
         conf.m_order = 0;
         sstart += send;
