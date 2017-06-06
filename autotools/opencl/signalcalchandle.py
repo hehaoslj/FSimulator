@@ -43,7 +43,6 @@ def get_idx_file(cfg):
         fname = fname.replace(reps[2*i], reps[2*i+1])
     return fname
 
-#const char* genopencltask(const char*);
 def genopencltask(fn):
     global cl_tmpl
     ffi = cffi.FFI()

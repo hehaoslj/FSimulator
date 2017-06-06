@@ -2,12 +2,13 @@ QT       += core gui
 QT       += network
 
 QT       += webkit webkitwidgets
+#QT += webenginewidgets
 
 QT       += websockets
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
-CONFIG += qscintilla2 release
+CONFIG += release
 
 TARGET = monitor
 
@@ -40,6 +41,7 @@ LIBS += -framework Python
 }
 
 include("../lib/QtPropertyBrowser/src/qtpropertybrowser.pri")
+include("../lib/QScintilla.pri")
 
 OTHER_FILES += meta.json signal_calc.py \
     autotools/clib*.* \

@@ -404,7 +404,7 @@ __kernel void signal_parameters_simulation (
     //__global const ChinaL1Msg* msg_data,/* msg_count */
     //__global const float3* mkt_data,    /* msg_count */
     __global OutputMsg* output,         /* param_group */
-    __global char* debug_log,
+    __global float* debug_log,
     //const float g_signal_multiple,      /* initialied multiple */
     const int msg_count,                /* sizeof msg */
     const int param_count,              /* sizeof parameter */
@@ -413,6 +413,8 @@ __kernel void signal_parameters_simulation (
     __global const $:(vec_type)* mkt_mid,    /* $:(clvec)-vectorized mid data */
     __global const $:(vec_type)* mkt_ask,    /* $:(clvec)-vectorized ask data */
     __global const $:(vec_type)* mkt_bid,     /* $:(clvec)-vectorized bid data */
+    __global const float* last_ask,    /* last ask price every session */
+    __global const float* last_bid,    /* last bid price every session */
     __global const int* trd_lv,
     __global const int* session_list,
     const int session_count
@@ -424,17 +426,6 @@ __kernel void signal_parameters_simulation (
     int scur;
     int sstart;
     int send;
-    //float last_ask;
-    //float last_bid;
-
-	//*(debug_log+8) = 0;
-	char test1[10];
-	//memset(test1, 0, 10);
-	//debug_log[0] = '1';
-	//debug_log[1] = '2';
-	//debug_log[2] = '3';
-
-	//strcpy(debug_log, test1);
 
     CUstpFtdcInputOrderField g_order;
     g_status conf;
@@ -450,12 +441,13 @@ __kernel void signal_parameters_simulation (
     output[param_pos].m_order=0;
     sstart = 0;
     send = 0;
+    
     for(scur = 0; scur < session_count; ++scur)
     {
         conf.m_max_pos = 1;
         conf.m_buy_pos = 0;
         conf.m_sell_pos = 0;
-        conf.m_multiple=10;
+        conf.m_multiple= 5;
         conf.m_fee_rate= 0.0f;//0.0001f;
         conf.m_fee_vol = 3.03f;
         conf.m_money = 0.0f;
@@ -510,15 +502,11 @@ __kernel void signal_parameters_simulation (
 //                );
 //            }
         }//end for-j
-
-		
         
-        j = (sstart+send) / $:(clvec) -1;
-        last_ask = ((__global float*)&(mkt_ask[j]))[0];
-        last_bid = ((__global float*)&(mkt_bid[j]))[0];
         flatten(&conf,//2400.0f,2400.0f
-            last_ask,last_bid
+            last_ask[scur],last_bid[scur]
             );
+ 
         //printf("mon %f ord:%d\\n", conf.m_money, conf.m_order);
         output[param_pos].m_result += conf.m_money;
         output[param_pos].m_order += conf.m_order;

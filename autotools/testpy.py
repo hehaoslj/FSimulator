@@ -11,9 +11,7 @@ def test():
 
 
     int fc_calc(const char* cfg);
-
     int forecastertask(const char*);
-
     void optimizetask(const char*);
     """)
     if len(sys.argv) < 1:

@@ -59,7 +59,7 @@ int main(int argc, char* argv[])
     if(argc >1) {
         forecastertask(argv[1]);
 //        optimizetask(argv[1]);
-        printf("%s\n", genopencltask(argv[1]) );
+        //printf("%s\n", genopencltask(argv[1]) );
     }
 
     //if(argc == 2)

@@ -532,9 +532,12 @@ int main(int argc, char** argv)
     float* mkt_ask = NULL;                     // Market ask data
     float* mkt_bid = NULL;                     // Market bid data
     int* trd_lv = NULL;                        // trade success or not
+#ifdef GPU_DEBUG    
 	float *debug_log = NULL;
+#endif
+	float *last_ask = NULL;
+    float *last_bid = NULL;
 
-	
     cl_mem cl_trd_lv = NULL;
 
     /** Config param */
@@ -565,7 +568,8 @@ int main(int argc, char** argv)
     cl_mem cl_ask_data = NULL;                 // Market ask data
     cl_mem cl_bid_data = NULL;                 // Market bid data
     cl_mem cl_ses_data = NULL;                 // Session list data
-
+	cl_mem cl_last_ask = NULL;                 // last ask price every session 
+	cl_mem cl_last_bid = NULL;                 // last bid price every session
 
     cl_uint platforms;
     cl_uint device_num = 0;
@@ -910,9 +914,9 @@ int main(int argc, char** argv)
                 +lo_size;
         hb_size += sizeof(int)*msg_count;
 
-#ifdef GPU_DEBUG
-		hb_size += 1024*sizeof(float);
-#endif	
+		//hb_size += fc*sizeof(float);
+		//hb_size += fc*sizeof(float);
+
         lmice_info_print("host size %lu\n"
                          "\tpd:%lu\tsg:%lu\tfs:%lu\tmm:%lu\tsg:%u\n"
                          "\top:%lu\thi:%lu\tlo:%lu\tmc:%u\n", hb_size,
@@ -968,8 +972,16 @@ int main(int argc, char** argv)
         highest_data = (float*)((char*)results + sizeof(OutputMsg) * prop_group);
         lowest_data = (float*)((char*)highest_data + (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
         trd_lv = (int*)((char*)lowest_data+(sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
-		debug_log = (float*)trd_lv + (msg_count * sizeof(int));
 		
+#ifdef GPU_DEBUG		
+		debug_log = (float*)malloc(sizeof(float)*1024);
+		memset( debug_log, 0, sizeof(float)*1024 );
+#endif		
+		last_ask = (float *)malloc(sizeof(float)*fc);
+		memset( last_ask, 0, sizeof(float)*fc );
+		last_bid = (float *)malloc(sizeof(float)*fc);
+		memset( last_bid, 0, sizeof(float)*fc );
+
         //session data
         ses_data = (int*)malloc(sizeof(int)*fc);
         clvec_aligned = cfg_get_integer(cfg, "optimizer.clvec");
@@ -1046,6 +1058,9 @@ int main(int argc, char** argv)
                     break;
                 pos ++;
             } while(rt != 0);
+			last_ask[i] = msg_data[pos-1].m_offer;
+			last_bid[i] = msg_data[pos-1].m_bid;
+			printf("==%f-%f==\n", last_bid[i], last_ask[i]);
             pos = aligned_size(pos, clvec_aligned);
             printf("return %lu\n", pos);
             fclose(fp_msg);
@@ -1190,7 +1205,11 @@ int main(int argc, char** argv)
 	cl_debug = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 1024*sizeof(float), NULL, NULL);
 	//printf("==%x==\n", cl_debug);
 #endif 
-	
+
+	cl_last_ask = clCreateBuffer(context, CL_MEM_READ_ONLY, fc*sizeof(float), NULL, NULL);
+	cl_last_bid = clCreateBuffer(context, CL_MEM_READ_ONLY, fc*sizeof(float), NULL, NULL);
+
+
     if (!cl_sig_data || !cl_prop_data || !cl_output)// || !cl_mkt_data)
     {
         lmice_error_print("Error: Failed to allocate device memory! sig=%p prop=%p output=%p mkt=%p prop_data=%p\n", cl_sig_data, cl_prop_data, cl_output, cl_mkt_data, prop_data);
@@ -1219,6 +1238,8 @@ int main(int argc, char** argv)
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_mid_data);
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_ask_data);
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_bid_data);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_last_ask);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_last_bid);
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_trd_lv);
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_ses_data);
     err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &fc);
@@ -1244,6 +1265,10 @@ int main(int argc, char** argv)
     err = clEnqueueWriteBuffer(commands, cl_mid_data, CL_TRUE, 0, sizeof(float) * msg_count, mkt_mid, 0, NULL, NULL);
     err = clEnqueueWriteBuffer(commands, cl_ask_data, CL_TRUE, 0, sizeof(float) * msg_count, mkt_ask, 0, NULL, NULL);
     err = clEnqueueWriteBuffer(commands, cl_bid_data, CL_TRUE, 0, sizeof(float) * msg_count, mkt_bid, 0, NULL, NULL);
+
+    err = clEnqueueWriteBuffer(commands, cl_last_ask, CL_TRUE, 0, sizeof(float) * fc, last_ask, 0, NULL, NULL);
+    err = clEnqueueWriteBuffer(commands, cl_last_bid, CL_TRUE, 0, sizeof(float) * fc, last_bid, 0, NULL, NULL);
+
 
     /// Write our data set into the input array in device memory
     err = clEnqueueWriteBuffer(commands, cl_sig_data, CL_TRUE, 0, sizeof(SIG_TYPE) * prop_count_an * sig_count, SIG_VALUE, 0, NULL, NULL);
@@ -1341,6 +1366,7 @@ int main(int argc, char** argv)
 
 #ifdef GPU_DEBUG
 
+	memset(debug_log, 0, 1024*sizeof(float));
 		/// Read back the debug log from the device
 	err = clEnqueueReadBuffer( commands, cl_debug, CL_TRUE, 0, 1024*sizeof(float) , debug_log, 0, NULL, NULL );
 
