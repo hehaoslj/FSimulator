@@ -353,6 +353,7 @@ static inline int get_sig_count(config_t cfg, struct sig_count_param** ppsc, int
 {
     int count;
     int i, ic;
+    int ret;
     char* bpos;
     const char* bsep = "__";
     const char* file;
@@ -363,6 +364,7 @@ static inline int get_sig_count(config_t cfg, struct sig_count_param** ppsc, int
     char *name;
     const char* outpath;
     struct sig_count_param* psc;
+    struct stat st;
 
     stype = cfg_get_string(cfg, "insttype");
     outpath = cfg_get_string(cfg, "signal_calc.outpath");
@@ -374,7 +376,7 @@ static inline int get_sig_count(config_t cfg, struct sig_count_param** ppsc, int
 
     *file_count = count;
 
-    lmice_debug_print("file count = %d\n", count);
+    lmice_info_print("Signal files count = %d\n", count);
     for(i=0; i<count; ++i)
     {
         struct sig_count_param* scur = psc+i;
@@ -396,6 +398,7 @@ static inline int get_sig_count(config_t cfg, struct sig_count_param** ppsc, int
         strcat(name, outpath);
         strcat(name, "/");
         strcat(name, pattern);
+        strcat(name, ".idx");
 
         replace_str(name, "%type", stype, strlen(stype));
         replace_str(name, "%date", sdate, 10);
@@ -404,6 +407,12 @@ static inline int get_sig_count(config_t cfg, struct sig_count_param** ppsc, int
         int brep_count = cfg_get_list_size(cfg, "optimizer.clreps");
         for(ic=0; ic<brep_count/2; ++ic)
         {
+            /** Check index file is existing */
+            ret = stat(name, &st);
+            if(ret == 0) {
+                break;
+            }
+
             const char* srep = cfg_get_list_string(cfg, "optimizer.clreps", ic*2);
             const char* drep = cfg_get_list_string(cfg, "optimizer.clreps", ic*2+1);
             replace_str(name, srep, drep, strlen(drep));
@@ -416,8 +425,8 @@ static inline int get_sig_count(config_t cfg, struct sig_count_param** ppsc, int
             long sc;
             long mc;
             config_t idx;
-            struct stat st;
-            strcat(name, ".idx");
+
+            //strcat(name, ".idx");
             idx = cfg_init_file(name);
             if(!idx)
             {
@@ -624,6 +633,7 @@ int main(int argc, char** argv)
     /** Calc environment initialization */
     // Get Platform id
     clGetPlatformIDs(0,0,&platforms);
+    lmice_info_print("OpenCL platform count=%d\n", platforms);
     if(platforms > 4) platforms = 4;
     //platform_id = (cl_platform_id*)malloc(platforms * sizeof(cl_platform_id));
     clGetPlatformIDs (platforms, platform_id, NULL);
