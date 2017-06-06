@@ -173,26 +173,6 @@ $for vec in [2,4,8]:
 $#end-for:vec
 
 
-/****************************************************************************
-*  forecast calcuation fallback to non-vectorized version
-****************************************************************************/
-inline float calc_forecast(__global const float* prop_data,
-    __global const float* sig_data,
-    __global const float3* mkt_data,
-    int prop_pos,
-    int msg_pos,
-    unsigned int prop_count,
-    const unsigned int device_type)
-{
-    float sig;
-    sig = get_forecast(prop_data + prop_pos*prop_count, sig_data+prop_count*msg_pos, prop_count, device_type);
-
-    float mid = mkt_data[msg_pos].x;
-
-    float forecast = mad(mid, sig, mid); //mid(1+sig)
-
-    return forecast;
-}
 __constant float4 fnorm4 = (float4)(1.0f,1.0f,1.0f,1.0f);
 __constant int fone = 0x3f800000; /* float 1.0f */
 
