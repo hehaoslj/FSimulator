@@ -13,6 +13,7 @@ from autotools.base_config import Config
 import numpy as np
 import struct
 
+#void optimizetask(const char*);
 def optimizetask(fn):
     f=open(ffi.string(fn),'r')
     code=f.read()

@@ -1054,6 +1054,7 @@ int main(int argc, char** argv)
             do {
                 rt = fread(msg_data+pos, sizeof(ChinaL1Msg), 1, fp_msg);
                 //printf("rt = %lu pos = %lu\n", rt ,pos);
+                //printf("%f-%f\n", msg_data[pos].m_bid, msg_data[pos].m_offer);
                 if(rt != 1)
                     break;
                 pos ++;
@@ -1185,6 +1186,13 @@ int main(int argc, char** argv)
             }
 
         }
+/*
+		int res_pos = 0;
+		for( res_pos=0; res_pos<=; res_pos++ )
+		{
+			printf("%d,%f\n", results[res_pos].m_order, results[res_pos].m_result);
+		}*/
+		
         return 0;
     }
 
@@ -1339,7 +1347,6 @@ int main(int argc, char** argv)
             return EXIT_FAILURE;
         }
 
-
         /// Wait for the command commands to get serviced before reading back results
         clFinish(commands);
 
@@ -1377,7 +1384,7 @@ int main(int argc, char** argv)
 		}
 		clFinish(commands);
 
-		//printf("1====================%s==================\n", debug_log);
+		//printf("1====================%f==================\n", debug_log[0]);
 
 #endif
 

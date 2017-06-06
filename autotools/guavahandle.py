@@ -253,6 +253,7 @@ class pcap_guava1(object):
     def file_hdr(self):
         return self.file_hdr
 
+#void guavatask(const char* fn);
 def guavatask(fn):
     import os
     from cffi import FFI
