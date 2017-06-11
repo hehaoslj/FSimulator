@@ -270,10 +270,10 @@ add_executable(testlib
 add_dependencies(testlib GenCFFI)
 add_dependencies(testlib forecaster_shared)
 target_link_libraries(testlib
-    ${guavatask_lib}
-    ${optimizetask_lib}
+    guavatask_lib
+    optimizetask_lib
     forecastertask_lib
-    ${signalcalctask_lib}
+    signalcalctask_lib
 )
 
 #App myopencl opencl
