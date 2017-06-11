@@ -36,7 +36,7 @@ void* gauss_fitting_create(double*x, int nx)
     {
         stddev += pow(x[i]-mean, 2.0);
     }
-    stddev = sqrt( stddev / nx );
+    stddev = sqrt( stddev / (nx-1) );
 
     gauss_fitting_t* gf = (gauss_fitting_t*)malloc(sizeof(gauss_fitting_t));
     gf->sigma = stddev;
