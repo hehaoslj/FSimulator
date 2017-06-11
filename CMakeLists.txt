@@ -282,6 +282,7 @@ LIST(APPEND myopencl_src
     autotools/opencl/prng.c
     autotools/opencl/config.c
     autotools/opencl/verify.c
+    autotools/opencl/fitting.c
     )
 add_executable(myopencl ${myopencl_src})
 add_dependencies(myopencl GenCFFI)

@@ -20,6 +20,7 @@
 
 #include "config.h"
 #include "prng.h"
+#include "fitting.h"
 
 #include <locale.h>
 #include <pthread.h>
@@ -71,6 +72,8 @@ static inline void print_usage(void)
            "myopencl -argn1 argv1 --argn2=argv2...>\n"
            "\t-h,--help\t\tPrint this message.\n"
            "\t-d,--device=d\t\tChoose calculation device.\n"
+           "\t-v,--verify=d\t\tVerify [0--n]highest data.\n"
+           "\t-sfs,--simfitsim=d\t\tDo Simulation - Datafitting - Simulation.\n"
            "\t-i,--input=s\t\tChoose config file.\n");
 }
 
@@ -147,7 +150,7 @@ static inline void replace_str(char* buff, const char* sep, const char* rep, siz
 }
 
 static inline int proc_cmdline(int argc, char** argv, int* dev_id, const char** cfg_file,
-                               int *verify_pos)
+                               int *verify_pos, int *sfs_mode)
 {
     int i;
     for(i=0; i<argc; ++i)
@@ -210,6 +213,11 @@ static inline int proc_cmdline(int argc, char** argv, int* dev_id, const char** 
         {
             cmd += 8;
             *cfg_file = cmd;
+        }
+        else if(strcmp(cmd, "-sfs") == 0 ||
+                strcmp(cmd, "--simfitsim") == 0)
+        {
+            *sfs_mode = 1;
         }
     }
     return 0;
@@ -602,6 +610,8 @@ int main(int argc, char** argv)
     const char* svalue = NULL;          // Config string value
     bool        bvalue = false;         // Config boolean value
     int bverify = -1;
+    int bsfs_mode = -1;      //do sim-fitting-sim
+    gauss_fitting_t* dfitting;
 
 
     long i = 0;
@@ -610,7 +620,7 @@ int main(int argc, char** argv)
     //setlocale(LC_TIME, "zh_CN.UTF-8");
 
     /** Process command line */
-    err = proc_cmdline(argc, argv, &dev_id, &cfg_file, &bverify);
+    err = proc_cmdline(argc, argv, &dev_id, &cfg_file, &bverify, &bsfs_mode);
     if(err != 0)
         return err;
 
@@ -1114,7 +1124,12 @@ int main(int argc, char** argv)
 
     prng_t mt_trd = prng_init_seed(prop_seed);
     prng_t mt19937 = prng_init_seed(prop_seed);
-    gauss_t gauss_rand = gauss_init_seed(prop_seed);
+    //gauss_t gauss_rand = gauss_init_seed(prop_seed);
+    gauss_t* gauss = (gauss_t*)malloc(sizeof(gauss_t)*prop_count);
+    for(j=0; j<prop_count;++j)
+    {
+        gauss[j] = gauss_init_seed(prop_seed + j);
+    }
     for(j=0; j<prop_pos; ++j)
     {
         prng_next(mt19937);
@@ -1141,7 +1156,7 @@ int main(int argc, char** argv)
             float buf[128];
             char *test = line;
             char *sep = ",";
-            char *word, *phrase, *brkt, *brkb;
+            char *word, *brkt;
             i=0;
             memset(buf, 0, sizeof(float)*128);
             printf("double test[]={");
@@ -1210,6 +1225,75 @@ int main(int argc, char** argv)
 		}*/
 		
         return 0;
+    }
+
+    //simulation- datafitting -simulation
+
+    if(bsfs_mode == 1)
+    {
+        size_t i;
+        int row;
+        int c;
+        double *data;
+        FILE* fp;
+        lmice_info_print("Simulation fitting simulation mode %lu\n", sizeof(gauss_fitting_t));
+        dfitting = (gauss_fitting_t*)malloc(sizeof(gauss_fitting_t)*prop_count);
+
+        // Load highest data
+        fp = fopen("highest.csv", "r");
+
+        // Ignore the first line
+        do {
+            c = fgetc(fp);
+            if(c == '\n')
+                break;
+        }while(c != EOF);
+
+        for(row = 0; row<highest; ++row)
+        {
+            // Read order
+            fscanf(fp, "%d", (int*)&highest_data[row*(2+prop_count) + 0]);
+
+            for(i=0; i<prop_count+1; ++i)
+            {
+                fscanf(fp, ",%f", &highest_data[row*(2+prop_count) + i+1]);
+            }
+            //printf("h[%d]=%d", row, *(int*)&highest_data[row*(2+prop_count)] );
+            //for(i=0; i<prop_count+1; ++i)
+            //{
+            //    printf(",%5.7f", highest_data[row*(2+prop_count) + i+1] );
+            //}
+            //printf("\n");
+            // Ignore the new line char
+            do {
+                c = fgetc(fp);
+                if(c == '\n')
+                    break;
+            }while(c != EOF);
+
+        }
+
+        fclose(fp);
+
+        // Fitting
+        data = (double*)malloc(sizeof(double)*highest);
+        for(i=0; i<prop_count; ++i)
+        {
+            for(c=0; c<highest; ++c)
+            {
+                data[c] = highest_data[c*(2+prop_count) + i+2];
+            }
+
+            dfitting[i] = gauss_fitting_create(data, highest);
+            gauss_fitting_init_seed(dfitting[i], prop_seed+i);
+
+        }
+        free(data);
+
+        // Clean
+        memset(highest_data, 0, (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
+
+        //return 0;
     }
 
     cl_ses_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int) * fc, NULL, NULL);
@@ -1327,11 +1411,27 @@ int main(int argc, char** argv)
         for(j=0; j < prop_group; ++j)
         {
             int pc_idx = 0;
+
             for(;pc_idx<prop_count; ++pc_idx)
             {
-                //prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
-                //prop_data[j*prop_count_an+pc_idx] = prop_multi * 2 *(prng_next(mt19937) - 0.5);
-                prop_data[j*prop_count_an+pc_idx] = prop_multi * gauss_next(gauss_rand);
+                double rt;
+
+                //Simulation-fitting-simulation mode
+                if(bsfs_mode==1)
+                {
+                    rt = gauss_fitting_next( dfitting[pc_idx]);
+                }
+                else
+                {
+                    //prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
+                    //prop_data[j*prop_count_an+pc_idx] = prop_multi * 2 *(prng_next(mt19937) - 0.5);
+                   //rt = prop_multi * gauss_next(gauss_rand);
+                   rt = prop_multi * gauss_next( gauss[pc_idx]);
+                }
+                //if(i==0 && j==0)
+                //    printf("%lf\n",rt);
+
+                prop_data[j*prop_count_an+pc_idx] = rt;
             }
         }
         for(j=0; j< msg_count; ++j)
@@ -1476,7 +1576,11 @@ int main(int argc, char** argv)
     {
         int i;
         int rt_idx;
-        FILE* fp = fopen("lowest.csv", "w");
+        FILE* fp;
+        if(bsfs_mode==1)
+            fp = fopen("lowest_sfs.csv", "w");
+        else
+            fp = fopen("lowest.csv", "w");
         fprintf(fp, "\"order\",\"result\"");
         for(i=0; i<prop_count; ++i)
             fprintf(fp, ",\"a[%d]\"", i);
@@ -1495,7 +1599,11 @@ int main(int argc, char** argv)
     {
         int i;
         int rt_idx;
-        FILE* fp = fopen("highest.csv", "w");
+        FILE* fp;
+        if(bsfs_mode==1)
+            fp = fopen("highest_sfs.csv", "w");
+        else
+            fp = fopen("highest.csv", "w");
         fprintf(fp, "\"order\",\"result\"");
         for(i=0; i<prop_count; ++i)
             fprintf(fp, ",\"a[%d]\"", i);
