@@ -208,7 +208,7 @@ std::string& replace_all(std::string& str,const std::string& old_value,const std
 
 /** Implement clib */
 
-typedef struct _internal_forecaster_s {
+struct in_forecaster_t {
     Forecaster *fc;
     std::string stype;
     std::string trading_instrument;
@@ -227,7 +227,7 @@ typedef struct _internal_forecaster_s {
     std::vector<double> askl1;
     std::vector<std::pair<double, int> > forecast;
     uint32_t duration;
-} in_forecaster_t;
+};
 
 forecaster_t fc_create(const char* type)
 {
@@ -422,8 +422,6 @@ inline void write_subsignals(in_forecaster_t* in, const ChinaL1Msg& msg_data)
     signal = in->fc->get_forecast();
     in->fc->get_all_signal(&rdata, &rsize);
 
-
-
     double mid = 0.5 * ( msg_dt.m_offer + msg_dt.m_bid );
     double forecast = mid * ( 1 + signal);
     int pos = (1<<0);
@@ -559,7 +557,7 @@ inline void proc_guava1(in_forecaster_t* in, char* buf, FILE* fp) {
                 /** Calculate */
                 ChinaL1Msg &msg_data = *pmsg_data;
                 Dummy_ChinaL1Msg& msg_dt = *(Dummy_ChinaL1Msg*)&msg_data;
-                int64_t micro_time = (int64_t)hdr->tv_sec*1000000LL+data->head.m_millisecond*1000;
+                int64_t micro_time = (int64_t)hdr->tv_sec*1000000LL+data->head.m_millisecond*1000LL;
 
 
                 //msg_dt.m_inst = data->head.m_symbol;
@@ -661,7 +659,26 @@ inline void proc_guava2(in_forecaster_t* in, char* buf, FILE* fp) {
             /** Calculate */
             ChinaL1Msg &msg_data = *pmsg_data;
             Dummy_ChinaL1Msg& msg_dt = *(Dummy_ChinaL1Msg*)&msg_data;
-            int64_t micro_time = (int64_t)hdr->tv_sec*1000000+data->quot.UpdateMillisec;//hdr->tv_usec;
+
+
+			int64_t micro_time = 0;
+			time_t data_time1, current;
+			current = time(NULL);
+			struct tm t = *localtime(&current);
+			char data_time[16];
+			memset(data_time, 0, 16);
+			strcpy(data_time, data->quot.UpdateTime);
+			char tmp[8];
+			memset(tmp, 0, 8);
+			memcpy( tmp, data_time, 2 );
+			t.tm_hour = atoi(tmp);
+			memcpy( tmp, data_time+3, 2 );
+			t.tm_min = atoi(tmp);
+			memcpy( tmp, data_time+6, 2 );
+			t.tm_sec = atoi(tmp);
+			data_time1 = mktime(&t);
+
+            micro_time = (int64_t)data_time1*1000000LL+data->quot.UpdateMillisec*1000LL;//hdr->tv_usec;
 
             //Update ChinaL1Msg
             msg_dt.m_time_micro = micro_time;
@@ -1083,6 +1100,9 @@ int fc_calc(const char* cfg)
     const char* value = NULL;
     forecaster_t fc = NULL;
 
+    json_t* arr = NULL;
+    int i;
+
     Dummy_ChinaL1Msg* pd=0;
     printf("sizeof Dummy_ChinaL1Msg = %llu, %llu\n",sizeof(Dummy_ChinaL1Msg), &(pd->m_limit_down));
 
@@ -1102,6 +1122,50 @@ int fc_calc(const char* cfg)
     value = json_string_value(obj);
 
     fc = fc_create(value);
+
+    /** Replace instruments */
+    key="signal_calc.replace";
+    obj = obj_get(root, key);
+    if(!json_is_array(obj))
+    {
+        printf("config key s[%s] is not array[%p].\n", key, obj);
+        return -1;
+    }
+
+    arr = obj;
+    int count = json_array_size(arr);
+    for(i = 0;
+        i < count/2;
+        i++)
+    {
+        json_t * obj1 = json_array_get(arr, i*2);
+        json_t * obj2 = json_array_get(arr, i*2+1);
+        const char* src;
+        const char* dst;
+        in_forecaster_t * in = reinterpret_cast<in_forecaster_t *>(fc);
+
+        if(!json_is_string(obj1) || !json_is_string(obj2)) {
+            printf("config key s[%s] is misstype[require strings].\n", key);
+            return -1;
+        }
+        src = json_string_value(obj1);
+        dst = json_string_value(obj2);
+
+        if(strcmp(in->trading_instrument.c_str(), src) == 0)
+        {
+            in->trading_instrument = dst;
+        }
+        for(auto ite = in->subscriptions.begin(); ite != in->subscriptions.end(); ++ite)
+        {
+            std::string& sub = *ite;
+            if(strcmp(sub.c_str(), src) == 0)
+            {
+                sub = dst;
+            }
+        }
+
+    }
+
 
     key="signal_calc.duration";
     obj = obj_get(root, key);
@@ -1142,8 +1206,9 @@ int fc_calc(const char* cfg)
         printf("config key s[%s] is missing.\n", key);
         return -1;
     }
-    json_t* arr = obj;
-    int i;
+
+    arr = obj;
+
     for(i = 0;
         i < json_array_size(arr) && (obj = json_array_get(arr, i));
         i++)
@@ -1157,7 +1222,8 @@ int fc_calc(const char* cfg)
         std::string file = datapath;
         file.append("/");
         file.append(value);
-
+		in_forecaster_t* in = reinterpret_cast<in_forecaster_t*>(fc);
+		in->fc->reset();
         fc_calc_subsignals(fc, file.c_str(), outpath, namepattern);
     }
 

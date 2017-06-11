@@ -16,7 +16,10 @@
     },
     "builder":{
         "cc":"gcc",
-        "cflags":["-O3","-std=c++11", "-fPIC",  "-shared",
+        "cflags":["-O3","-std=gnu99", "-fPIC",  "-shared",
+            "-march=native", "-mtune=native", "-malign-double",
+            "-I/usr/include", "-I/usr/local/include"],
+        "cppflags":["-O3", "-std=c++14","-fPIC",  "-shared",
             "-march=native", "-mtune=native", "-malign-double",
             "-I/usr/include", "-I/usr/local/include"],
         "lflags":["-L/usr/lib", "-L/usr/local/lib", "-ljansson",
@@ -33,10 +36,11 @@
     }
     ,"signal_calc":{
         "datpath":"/home/hehao/hwork/shif",
-        "files":["package_2016-10-24__08-50-01.cap"],
+        "files":["package_2017-05-22__08-50-01_guava2.cap"],
         "pattern":"hehao__%type-%date-%time",
         "outpath":"/home/hehao/hwork",
-        "duration":5
+        "duration":5,
+        "replace":["rb1701", "rb1710", "hc1701", "hc1710"]
     }
     ,"trading_calc":{
         "fee_rate_open":0.00005,
@@ -50,11 +54,11 @@
         "platformid":0,
         "deviceid":2,
         "seed":12,
-        "trial":4096000,
+        "trial":409600,
         "pos":100,
         "group":409600,
         "aligned":4,
-        "sig_multiple":2.2,
+        "sig_multiple":2.5,
         "clfile":"subsignal_trade.cl",
         "clfunc":"signal_parameters_simulation",
         "clreps":["/home/hehao/hwork", "/Users/hehao/work"],

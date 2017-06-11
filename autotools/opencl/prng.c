@@ -1,4 +1,5 @@
 #include <stdlib.h>
+#include <math.h>
 
 /* Period parameters */
 #define N 624
@@ -16,7 +17,16 @@ int initf;
 unsigned long *next;
 }mt19937_in;
 
+
+
 typedef struct mt19937_in_s* mt19937;
+
+typedef struct gauss_rand_s {
+    mt19937 mt1;
+    mt19937 mt2;
+} gauss_rand_in;
+
+typedef gauss_rand_in* gauss_rand;
 
 /* initializes state[N] with a seed */
 static inline mt19937 init_genrand(unsigned long s)
@@ -117,4 +127,27 @@ double prng_next(void* pv)
 {
     mt19937 in = (mt19937)pv;
     return genrand_res53(in);
+}
+
+void* gauss_init_seed(unsigned long seed)
+{
+    gauss_rand in = (gauss_rand)malloc(sizeof(gauss_rand_in));
+    in->mt1 = init_genrand(seed);
+    in->mt2 = init_genrand(seed*2+1);
+    return in;
+}
+void gauss_free(void* pv)
+{
+    gauss_rand in = (gauss_rand)pv;
+    free(in->mt1);
+    free(in->mt2);
+    free(pv);
+}
+
+double gauss_next(void* pv)
+{
+    gauss_rand in = (gauss_rand)pv;
+    double u = genrand_res53(in->mt1);
+    double v = genrand_res53(in->mt2);
+    return sqrt(-2.0 * log(u))* sin(2.0 * M_PI * v);
 }

@@ -23,7 +23,7 @@ MainWindow::MainWindow(QWidget *parent) :
     web = new QWebView(ui->centralwidget);
     QString url = "file:///Users/hehao/work/lib/metroui/docs/index.html";
     //QString url = "file:///Users/hehao/work/lib/bootstrap/docs/index.html";
-    url="http://192.168.56.101:8801/en/recruitment";
+    //url="http://192.168.56.101:8801/en/recruitment";
     web->load(url);
 
     connect(web, SIGNAL(titleChanged(QString)), this, SLOT(setTitle(QString)));

@@ -40,6 +40,8 @@ def get_idx_file(cfg):
     #Do replace
     reps = cfg.optimizer.clreps
     for i in range(len(reps)/2):
+        if os.path.exists(fname):
+            return fname
         fname = fname.replace(reps[2*i], reps[2*i+1])
     return fname
 
