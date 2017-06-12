@@ -149,6 +149,48 @@ static inline void replace_str(char* buff, const char* sep, const char* rep, siz
     } while(bpos);
 }
 
+static inline int read_highest(FILE* fp, int highest, unsigned int prop_count, float* highest_data)
+{
+    size_t i;
+    int c;
+    int row;
+    int pos;
+    // Ignore the first line
+    do {
+        c = fgetc(fp);
+        if(c == '\n')
+            break;
+    }while(c != EOF);
+
+    // Read each rows
+    for(row = 0; row<highest; ++row)
+    {
+        pos = row*(2+prop_count);
+        // Read order [int]
+        fscanf(fp, "%d", (int*)&highest_data[ pos ]);
+
+        // Break when match an invalid value
+        if( *(int*)&highest_data[pos] <= 0)
+            return row;
+
+        // Read value [float]
+        for(i=0; i<prop_count+1; ++i)
+        {
+            fscanf(fp, ",%f", &highest_data[pos + i+1]);
+        }
+
+        // Ignore the end line char
+        do {
+            c = fgetc(fp);
+            if(c == '\n')
+                break;
+        }while(c != EOF);
+
+    }
+
+    return highest;
+}
+
 static inline int proc_cmdline(int argc, char** argv, int* dev_id, const char** cfg_file,
                                int *verify_pos, int *sfs_mode)
 {
@@ -553,9 +595,9 @@ int main(int argc, char** argv)
     float* mkt_bid = NULL;                     // Market bid data
     int* trd_lv = NULL;                        // trade success or not
 #ifdef GPU_DEBUG    
-	float *debug_log = NULL;
+    float *debug_log = NULL;
 #endif
-	float *last_ask = NULL;
+    float *last_ask = NULL;
     float *last_bid = NULL;
 
     cl_mem cl_trd_lv = NULL;
@@ -577,7 +619,7 @@ int main(int argc, char** argv)
     cl_mem cl_output = NULL;                   // results
 
 #ifdef  GPU_DEBUG
-	cl_mem cl_debug = NULL;
+    cl_mem cl_debug = NULL;
 #endif
 
     cl_mem cl_prop_data = NULL;                // property data
@@ -588,8 +630,8 @@ int main(int argc, char** argv)
     cl_mem cl_ask_data = NULL;                 // Market ask data
     cl_mem cl_bid_data = NULL;                 // Market bid data
     cl_mem cl_ses_data = NULL;                 // Session list data
-	cl_mem cl_last_ask = NULL;                 // last ask price every session 
-	cl_mem cl_last_bid = NULL;                 // last bid price every session
+    cl_mem cl_last_ask = NULL;                 // last ask price every session
+    cl_mem cl_last_bid = NULL;                 // last bid price every session
 
     cl_uint platforms;
     cl_uint device_num = 0;
@@ -611,7 +653,9 @@ int main(int argc, char** argv)
     bool        bvalue = false;         // Config boolean value
     int bverify = -1;
     int bsfs_mode = -1;      //do sim-fitting-sim
-    gauss_fitting_t* dfitting;
+    long sfs_loop = 1;
+    long sfs_iter;
+    gauss_fitting_t* dfitting = NULL;
 
 
     long i = 0;
@@ -758,8 +802,8 @@ int main(int argc, char** argv)
             return EXIT_FAILURE;
         }
         lmice_info_print("file=%s\n", scur->file_name);
-		
-	//	printf("== prop:%d - sig:%d - msg:%d ==\n", pc, sc, mc);
+
+        //	printf("== prop:%d - sig:%d - msg:%d ==\n", pc, sc, mc);
     }
 
 
@@ -858,7 +902,7 @@ int main(int argc, char** argv)
         prop_group =    cfg_get_integer(cfg,    "optimizer.group");
         prop_trial =    cfg_get_integer(cfg,    "optimizer.trial");
         
-	// Calc prop_data size sizeof(float)*prop_count_an*prop_group
+        // Calc prop_data size sizeof(float)*prop_count_an*prop_group
         pd_size = sizeof(PROP_TYPE)*prop_count_an*prop_group;
 
         // Read signal from forecast file
@@ -937,8 +981,8 @@ int main(int argc, char** argv)
                 +lo_size;
         hb_size += sizeof(int)*msg_count;
 
-		//hb_size += fc*sizeof(float);
-		//hb_size += fc*sizeof(float);
+        //hb_size += fc*sizeof(float);
+        //hb_size += fc*sizeof(float);
 
         lmice_info_print("host size %lu\n"
                          "\tpd:%lu\tsg:%lu\tfs:%lu\tmm:%lu\tsg:%u\n"
@@ -980,7 +1024,7 @@ int main(int argc, char** argv)
                 return EXIT_FAILURE;
             }
         }
-		memset(host_bulk, 0, hb_size);
+        memset(host_bulk, 0, hb_size);
 
         // Init pointers
         prop_data = (float*)host_bulk;
@@ -995,15 +1039,15 @@ int main(int argc, char** argv)
         highest_data = (float*)((char*)results + sizeof(OutputMsg) * prop_group);
         lowest_data = (float*)((char*)highest_data + (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
         trd_lv = (int*)((char*)lowest_data+(sizeof(OutputMsg) + sizeof(float) * prop_count)* lowest);
-		
+
 #ifdef GPU_DEBUG		
-		debug_log = (float*)malloc(sizeof(float)*1024);
-		memset( debug_log, 0, sizeof(float)*1024 );
+        debug_log = (float*)malloc(sizeof(float)*1024);
+        memset( debug_log, 0, sizeof(float)*1024 );
 #endif		
-		last_ask = (float *)malloc(sizeof(float)*fc);
-		memset( last_ask, 0, sizeof(float)*fc );
-		last_bid = (float *)malloc(sizeof(float)*fc);
-		memset( last_bid, 0, sizeof(float)*fc );
+        last_ask = (float *)malloc(sizeof(float)*fc);
+        memset( last_ask, 0, sizeof(float)*fc );
+        last_bid = (float *)malloc(sizeof(float)*fc);
+        memset( last_bid, 0, sizeof(float)*fc );
 
         //session data
         ses_data = (int*)malloc(sizeof(int)*fc);
@@ -1025,21 +1069,21 @@ int main(int argc, char** argv)
             struct sig_count_param *scur = psc+i;
             memcpy(name, scur->file_name, 256);
             strcat(name, ".fc");
-			printf("======================= fopen:%s\n", name);
+            //printf("======================= fopen:%s\n", name);
             fp_sig = fopen(name, "rb");
             for(;;)
             {
                 rt = fread(sig_data+pos*prop_count_an, sizeof(double)*prop_count, 1, fp_sig);
 
-/*				
-				static int ppp = 0;
-				if( ppp <= 999 )
-				{
-					double *ttt = sig_data+pos*prop_count_an;
-					printf("sig- %lf,%lf,%lf,%lf,%lf,%lf\n",  *ttt, *(ttt+1), *(ttt+2), *(ttt+3), *(ttt+4), *(ttt+5) );
-				}
+                /*
+                static int ppp = 0;
+                if( ppp <= 999 )
+                {
+                    double *ttt = sig_data+pos*prop_count_an;
+                    printf("sig- %lf,%lf,%lf,%lf,%lf,%lf\n",  *ttt, *(ttt+1), *(ttt+2), *(ttt+3), *(ttt+4), *(ttt+5) );
+                }
 */				
-				
+
                 if(rt == 0)
                 {
                     break;
@@ -1082,13 +1126,13 @@ int main(int argc, char** argv)
                     break;
                 pos ++;
             } while(rt != 0);
-			last_ask[i] = msg_data[pos-1].m_offer;
-			last_bid[i] = msg_data[pos-1].m_bid;
-			printf("==%f-%f==\n", last_bid[i], last_ask[i]);
+            last_ask[i] = msg_data[pos-1].m_offer;
+            last_bid[i] = msg_data[pos-1].m_bid;
+            //printf("==%f-%f==\n", last_bid[i], last_ask[i]);
             pos = aligned_size(pos, clvec_aligned);
-            printf("return %lu\n", pos);
+            //printf("return %lu\n", pos);
             fclose(fp_msg);
-            printf("reading ...%s, pos=%lu\n", name, pos);
+            //printf("reading ...%s, pos=%lu\n", name, pos);
         }
 
         // Construct market data(vectorized version)
@@ -1105,16 +1149,16 @@ int main(int argc, char** argv)
             //printf("%lf\n", pc->m_offer);
         }
 
-//        pintf("pos :16000, sig:\n");
-//        for(i=0; i<prop_count_an; ++i)
-//        {
-//            printf("sig[i]=%lf\t", sig_data[16000*prop_count_an+i]);
-//        }
-//        for(i=0; i<prop_count_an; ++i)
-//        {
-//            printf("ask[i]=%lf\t", mkt_ask[16000+i]);
-//        }
-//        printf("\n");
+        //        pintf("pos :16000, sig:\n");
+        //        for(i=0; i<prop_count_an; ++i)
+        //        {
+        //            printf("sig[i]=%lf\t", sig_data[16000*prop_count_an+i]);
+        //        }
+        //        for(i=0; i<prop_count_an; ++i)
+        //        {
+        //            printf("ask[i]=%lf\t", mkt_ask[16000+i]);
+        //        }
+        //        printf("\n");
 
         // Init result data
         memset(highest_data, 0, (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
@@ -1136,58 +1180,58 @@ int main(int argc, char** argv)
         prng_next(mt_trd);
     }
 
-		printf( " prop_data_1:%f, sig_data_1:%lf, fsig_data_1:%f, msg_data_1:%lf-%lf, mkt_data_1:%f-%f-%f, mkt_mid:%f, mkt_ask:%f, mkt_bid:%f, results_1:%d\n", *prop_data, *sig_data, *fsig_data, msg_data->m_bid,  msg_data->m_offer, *mkt_data,
-		*(mkt_data+1), *(mkt_data+2), *mkt_mid, *mkt_ask, *mkt_bid, results->m_order );
-	
+    printf( " prop_data_1:%f, sig_data_1:%lf, fsig_data_1:%f, msg_data_1:%lf-%lf, mkt_data_1:%f-%f-%f, mkt_mid:%f, mkt_ask:%f, mkt_bid:%f, results_1:%d\n", *prop_data, *sig_data, *fsig_data, msg_data->m_bid,  msg_data->m_offer, *mkt_data,
+            *(mkt_data+1), *(mkt_data+2), *mkt_mid, *mkt_ask, *mkt_bid, results->m_order );
+
     if(bverify >= 0 && bverify < 1000)
     {
+        int rows;
         int vpos = 0;
-        FILE* fp = fopen("highest.csv", "r");
-        char *line = NULL;
-        size_t linecap = 0;
-        ssize_t linelen;
-        linelen = getline(&line, &linecap, fp);
+        FILE* fp = NULL;
 
-        for(vpos =0; vpos <= bverify; ++vpos)
+        if(bsfs_mode == 1)
         {
-            //verify mode
-            linelen = getline(&line, &linecap, fp);
+            fp = fopen("highest_sfs.csv", "r");
+        }
+        else
+        {
+            fp = fopen("highest.csv", "r");
+        }
 
-            float buf[128];
-            char *test = line;
-            char *sep = ",";
-            char *word, *brkt;
-            i=0;
-            memset(buf, 0, sizeof(float)*128);
+        rows = read_highest(fp, highest, prop_count, highest_data);
+
+        if(rows == 0)
+        {
+            lmice_error_print("No highest data\n");
+            return 0;
+        }
+        if(bverify >= rows)
+            bverify = rows;
+
+        for(vpos =0; vpos < bverify; ++vpos)
+        {
+            // Print  params
             printf("double test[]={");
-            for (word = strtok_r(test, sep, &brkt);
-                 word;
-                 word = strtok_r(NULL, sep, &brkt))
+            for(i=0; i<prop_count; ++i)
             {
-                buf[i] = atof(word);
-                //printf("%s %f\n", word, buf[i]);
-                if(i>=2 && i<prop_count+1)
-                    printf("%s, ", word);
-                if(i%4 == 0)
-                    printf("\n");
-                if(i == prop_count +1)
-                    printf("%s};\n", word);
-                i++;
+                if(i == prop_count-1)
+                    printf("%5.7f }\n", highest_data[vpos*(prop_count+2)+2+i]);
+                else
+                    printf("%5.7f,", highest_data[vpos*(prop_count+2)+2+i]);
             }
 
-            for(i=0; i<prop_count_an; ++i)
-            {
-                prop_data[i] = buf[i+2];
-                printf("%f\t", prop_data[i]);
-            }
-            printf("\n");
+            // Prop data
+            memset(prop_data, 0, sizeof(float)*prop_count_an);
+            memcpy(prop_data, &highest_data[vpos*(prop_count+2)+2], sizeof(float)*prop_count);
 
+            // Trade level data
             for(j=0; j< msg_count; ++j)
             {
                 trd_lv[j] = prng_next(mt_trd) < 0.4?1:0;
                 //trd_lv[j] =1;
             }
 
+            // Do verify
             verify(prop_data,
                    fsig_data,
                    results,
@@ -1204,11 +1248,11 @@ int main(int argc, char** argv)
                    trd_lv,
                    ses_data,
                    fc);
-			
+
             if(results[0].m_result>0)
             {
-	            lmice_critical_print("output[%d] order:%d\tPL:+%f\n", vpos,
-    	                             results[0].m_order, results[0].m_result);
+                lmice_critical_print("output[%d] order:%d\tPL:+%f\n", vpos,
+                                     results[0].m_order, results[0].m_result);
             }
             else
             {
@@ -1217,84 +1261,17 @@ int main(int argc, char** argv)
             }
 
         }
-/*
-		int res_pos = 0;
-		for( res_pos=0; res_pos<=; res_pos++ )
-		{
-			printf("%d,%f\n", results[res_pos].m_order, results[res_pos].m_result);
-		}*/
-		
+        /*
+        int res_pos = 0;
+        for( res_pos=0; res_pos<=; res_pos++ )
+        {
+            printf("%d,%f\n", results[res_pos].m_order, results[res_pos].m_result);
+        }*/
+
         return 0;
     }
 
-    //simulation- datafitting -simulation
 
-    if(bsfs_mode == 1)
-    {
-        size_t i;
-        int row;
-        int c;
-        double *data;
-        FILE* fp;
-        lmice_info_print("Simulation fitting simulation mode %lu\n", sizeof(gauss_fitting_t));
-        dfitting = (gauss_fitting_t*)malloc(sizeof(gauss_fitting_t)*prop_count);
-
-        // Load highest data
-        fp = fopen("highest.csv", "r");
-
-        // Ignore the first line
-        do {
-            c = fgetc(fp);
-            if(c == '\n')
-                break;
-        }while(c != EOF);
-
-        for(row = 0; row<highest; ++row)
-        {
-            // Read order
-            fscanf(fp, "%d", (int*)&highest_data[row*(2+prop_count) + 0]);
-
-            for(i=0; i<prop_count+1; ++i)
-            {
-                fscanf(fp, ",%f", &highest_data[row*(2+prop_count) + i+1]);
-            }
-            //printf("h[%d]=%d", row, *(int*)&highest_data[row*(2+prop_count)] );
-            //for(i=0; i<prop_count+1; ++i)
-            //{
-            //    printf(",%5.7f", highest_data[row*(2+prop_count) + i+1] );
-            //}
-            //printf("\n");
-            // Ignore the new line char
-            do {
-                c = fgetc(fp);
-                if(c == '\n')
-                    break;
-            }while(c != EOF);
-
-        }
-
-        fclose(fp);
-
-        // Fitting
-        data = (double*)malloc(sizeof(double)*highest);
-        for(i=0; i<prop_count; ++i)
-        {
-            for(c=0; c<highest; ++c)
-            {
-                data[c] = highest_data[c*(2+prop_count) + i+2];
-            }
-
-            dfitting[i] = gauss_fitting_create(data, highest);
-            gauss_fitting_init_seed(dfitting[i], prop_seed+i);
-
-        }
-        free(data);
-
-        // Clean
-        memset(highest_data, 0, (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
-
-        //return 0;
-    }
 
     cl_ses_data = clCreateBuffer(context, CL_MEM_READ_ONLY, sizeof(int) * fc, NULL, NULL);
 
@@ -1310,12 +1287,12 @@ int main(int argc, char** argv)
     cl_output = clCreateBuffer(context, CL_MEM_WRITE_ONLY, sizeof(OutputMsg) * prop_group, NULL, NULL);
 
 #ifdef GPU_DEBUG
-	cl_debug = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 1024*sizeof(float), NULL, NULL);
-	//printf("==%x==\n", cl_debug);
+    cl_debug = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 1024*sizeof(float), NULL, NULL);
+    //printf("==%x==\n", cl_debug);
 #endif 
 
-	cl_last_ask = clCreateBuffer(context, CL_MEM_READ_ONLY, fc*sizeof(float), NULL, NULL);
-	cl_last_bid = clCreateBuffer(context, CL_MEM_READ_ONLY, fc*sizeof(float), NULL, NULL);
+    cl_last_ask = clCreateBuffer(context, CL_MEM_READ_ONLY, fc*sizeof(float), NULL, NULL);
+    cl_last_bid = clCreateBuffer(context, CL_MEM_READ_ONLY, fc*sizeof(float), NULL, NULL);
 
 
     if (!cl_sig_data || !cl_prop_data || !cl_output)// || !cl_mkt_data)
@@ -1335,8 +1312,8 @@ int main(int argc, char** argv)
     //err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_mkt_data);
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_output);
 #ifdef GPU_DEBUG
-	err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_debug);
-	//printf("1======%d=======\n", err);
+    err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_debug);
+    //printf("1======%d=======\n", err);
 #endif
     //err |= clSetKernelArg(kernel, i++, sizeof(float), &prop_multi);
     err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &msg_count);
@@ -1352,7 +1329,7 @@ int main(int argc, char** argv)
     err |= clSetKernelArg(kernel, i++, sizeof(cl_mem), &cl_ses_data);
     err |= clSetKernelArg(kernel, i++, sizeof(unsigned int), &fc);
 
-	
+
     if (err != CL_SUCCESS)
     {
         printf("Error: Failed to set kernel arguments! %d\n", err);
@@ -1382,7 +1359,7 @@ int main(int argc, char** argv)
     err = clEnqueueWriteBuffer(commands, cl_sig_data, CL_TRUE, 0, sizeof(SIG_TYPE) * prop_count_an * sig_count, SIG_VALUE, 0, NULL, NULL);
     if (err != CL_SUCCESS)
     {
-        printf("Error: Failed to write sig_data to source array!\n");
+        lmice_error_print("Error: Failed to write sig_data to source array!\n");
         exit(1);
     }
 
@@ -1394,233 +1371,307 @@ int main(int argc, char** argv)
     //    }
 
     //err = clEnqueueWriteBuffer(commands, cl_mkt_data, CL_TRUE, 0, sizeof(float) * 3 * msg_count, mkt_data, 0, NULL, NULL);
-    if (err != CL_SUCCESS)
+    //    if (err != CL_SUCCESS)
+    //    {
+    //        printf("Error: Failed to write mkt_data to source array!\n");
+    //        exit(1);
+    //    }
+
+
+    int64_t tbegin = 0;
+    int64_t tend = 0;
+    int64_t sfs_tick_begin = 0;
+    int64_t sfs_tick_end = 0;
+    get_tick_count(&sfs_tick_begin);
+    //lmice_info_print("begin process\n");
+
+    if(bsfs_mode == 1)
     {
-        printf("Error: Failed to write mkt_data to source array!\n");
-        exit(1);
+        sfs_loop = cfg_get_integer(cfg, "optimizer.sfsloop");
+        if(sfs_loop<=0) sfs_loop = 10;
     }
 
-
-    int64_t tbegin;
-    get_tick_count(&tbegin);
-    //lmice_info_print("begin process\n");
-    for(i=0; i<prop_trial; i += global)
+    for(sfs_iter = 0; sfs_iter < sfs_loop; ++sfs_iter)
     {
-
-        // Update subsignals properties
-        for(j=0; j < prop_group; ++j)
+        //simulation- datafitting -simulation
+        if(bsfs_mode == 1)
         {
-            int pc_idx = 0;
-
-            for(;pc_idx<prop_count; ++pc_idx)
+            size_t i;
+            int rows = 0;
+            int c;
+            double *data = NULL;
+            FILE* fp = NULL;
+            struct stat st;
+            lmice_info_print("Simulation fitting simulation iter: %ld\n", sfs_iter);
+            if(dfitting)
             {
-                double rt;
-
-                //Simulation-fitting-simulation mode
-                if(bsfs_mode==1)
-                {
-                    rt = gauss_fitting_next( dfitting[pc_idx]);
-                }
-                else
-                {
-                    //prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
-                    //prop_data[j*prop_count_an+pc_idx] = prop_multi * 2 *(prng_next(mt19937) - 0.5);
-                   //rt = prop_multi * gauss_next(gauss_rand);
-                   rt = prop_multi * gauss_next( gauss[pc_idx]);
-                }
-                //if(i==0 && j==0)
-                //    printf("%lf\n",rt);
-
-                prop_data[j*prop_count_an+pc_idx] = rt;
+                for(i=0; i<prop_count; ++i)
+                    gauss_fitting_free(dfitting[i]);
             }
+            else
+            {
+                dfitting = (gauss_fitting_t*)malloc(sizeof(gauss_fitting_t)*prop_count);
+            }
+
+            // Load highest data
+            if(stat("highest_sfs.csv", &st) == 0)
+                fp = fopen("highest_sfs.csv", "r");
+            else
+                fp = fopen("highest.csv", "r");
+
+            rows = read_highest(fp, highest, prop_count, highest_data);
+
+            fclose(fp);
+
+            if(rows == 0)
+            {
+                lmice_error_print("SFS mode reading highest failed\n");
+                return -1;
+            }
+
+            // Fitting
+            data = (double*)malloc(sizeof(double)*rows);
+            for(i=0; i<prop_count; ++i)
+            {
+                for(c=0; c<rows; ++c)
+                {
+                    data[c] = highest_data[c*(2+prop_count) + i+2];
+                }
+
+                dfitting[i] = gauss_fitting_create(data, rows);
+                gauss_fitting_init_seed(dfitting[i], prop_seed+i);
+
+            }
+            free(data);
+
+            // Clean
+            memset(highest_data, 0, (sizeof(OutputMsg) + sizeof(float) * prop_count)* highest);
+
+            //return 0;
         }
-        for(j=0; j< msg_count; ++j)
+        for(i=0; i<prop_trial; i += global)
         {
-            trd_lv[j] = prng_next(mt_trd) < 0.4?1:0;
-            //trd_lv[j] =1;
-        }
-        cl_event event;
-        err = clEnqueueWriteBuffer(commands, cl_prop_data, CL_TRUE, 0, sizeof(PROP_TYPE) * prop_count_an * prop_group, prop_data, 0, NULL, NULL);
-        if (err != CL_SUCCESS)
-        {
-            printf("Error: Failed to write prop_data to source array!\n");
-            exit(1);
-        }
-        err = clEnqueueWriteBuffer(commands, cl_trd_lv, CL_TRUE, 0, sizeof(int) * msg_count, trd_lv, 0, NULL, NULL);
+            get_tick_count(&tbegin);
+
+            // Update subsignals properties
+            for(j=0; j < prop_group; ++j)
+            {
+                int pc_idx = 0;
+
+                for(;pc_idx<prop_count; ++pc_idx)
+                {
+                    double rt;
+
+                    //Simulation-fitting-simulation mode
+                    if(bsfs_mode==1)
+                    {
+                        rt = gauss_fitting_next( dfitting[pc_idx]);
+                    }
+                    else
+                    {
+                        //prop_data[j*prop_count_an + pc_idx] = prng_next(mt19937);
+                        //prop_data[j*prop_count_an+pc_idx] = prop_multi * 2 *(prng_next(mt19937) - 0.5);
+                        //rt = prop_multi * gauss_next(gauss_rand);
+                        rt = prop_multi * gauss_next( gauss[pc_idx]);
+                    }
+                    //if(i==0 && j==0)
+                    //    printf("%lf\n",rt);
+
+                    prop_data[j*prop_count_an+pc_idx] = rt;
+                }
+            }
+            for(j=0; j< msg_count; ++j)
+            {
+                trd_lv[j] = prng_next(mt_trd) < 0.4?1:0;
+                //trd_lv[j] =1;
+            }
+            cl_event event;
+            err = clEnqueueWriteBuffer(commands, cl_prop_data, CL_TRUE, 0, sizeof(PROP_TYPE) * prop_count_an * prop_group, prop_data, 0, NULL, NULL);
+            if (err != CL_SUCCESS)
+            {
+                printf("Error: Failed to write prop_data to source array!\n");
+                exit(1);
+            }
+            err = clEnqueueWriteBuffer(commands, cl_trd_lv, CL_TRUE, 0, sizeof(int) * msg_count, trd_lv, 0, NULL, NULL);
 
 
-        // Execute the kernel over the entire range of our 1d input data set
-        // using the maximum number of work group items for this device
-        //
-        global = prop_group;
-        //local = 32;
-        printf("process[%ld]:\tglobal=%lu  local=%lu\n", i, global, local);
+            // Execute the kernel over the entire range of our 1d input data set
+            // using the maximum number of work group items for this device
+            //
+            global = prop_group;
+            //local = 32;
+            //printf("process[%ld]:\tglobal=%lu  local=%lu\n", i, global, local);
 
-        err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, &event);
-        if (err)
-        {
-            printf("Error: Failed to execute kernel![%d]\n", err);
-            return EXIT_FAILURE;
-        }
+            err = clEnqueueNDRangeKernel(commands, kernel, 1, NULL, &global, &local, 0, NULL, &event);
+            if (err)
+            {
+                printf("Error: Failed to execute kernel![%d]\n", err);
+                return EXIT_FAILURE;
+            }
 
-        /// Wait for the command commands to get serviced before reading back results
-        clFinish(commands);
+            /// Wait for the command commands to get serviced before reading back results
+            clFinish(commands);
 
-        {
-            cl_ulong start, end;
-            clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END,
-                                    sizeof(cl_ulong), &end, NULL);
-            clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START,
-                                    sizeof(cl_ulong), &start, NULL);
-            float executionTimeInMilliseconds = (end - start) * 1.0e-6f;
-            lmice_info_print("calculate process finished prop_group-%u time(ms)-%f\n", prop_group,executionTimeInMilliseconds);
-        }
+            {
+                cl_ulong start, end;
+                clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_END,
+                                        sizeof(cl_ulong), &end, NULL);
+                clGetEventProfilingInfo(event, CL_PROFILING_COMMAND_START,
+                                        sizeof(cl_ulong), &start, NULL);
+                float executionTimeInMilliseconds = (end - start) * 1.0e-6f;
+                lmice_info_print("calculate process finished prop_group-%u time(ms)-%f\n", prop_group,executionTimeInMilliseconds);
+            }
 
 
-        /// Read back the results from the device to verify the output
-	err = clEnqueueReadBuffer( commands, cl_output, CL_TRUE, 0, sizeof(OutputMsg) * prop_group, results, 0, NULL, NULL );
-	
-        if (err != CL_SUCCESS)
-        {
-            printf("Error: Failed to read output array! %d\n", err);
-            exit(1);
-        }
-        clFinish(commands);
+            /// Read back the results from the device to verify the output
+            err = clEnqueueReadBuffer( commands, cl_output, CL_TRUE, 0, sizeof(OutputMsg) * prop_group, results, 0, NULL, NULL );
+
+            if (err != CL_SUCCESS)
+            {
+                printf("Error: Failed to read output array! %d\n", err);
+                exit(1);
+            }
+            clFinish(commands);
 
 #ifdef GPU_DEBUG
 
-	memset(debug_log, 0, 1024*sizeof(float));
-		/// Read back the debug log from the device
-	err = clEnqueueReadBuffer( commands, cl_debug, CL_TRUE, 0, 1024*sizeof(float) , debug_log, 0, NULL, NULL );
+            memset(debug_log, 0, 1024*sizeof(float));
+            /// Read back the debug log from the device
+            err = clEnqueueReadBuffer( commands, cl_debug, CL_TRUE, 0, 1024*sizeof(float) , debug_log, 0, NULL, NULL );
 
-		if (err != CL_SUCCESS)
-		{
-			printf("Error: Failed to read debug array! %d\n", err);
-			exit(1);
-		}
-		clFinish(commands);
+            if (err != CL_SUCCESS)
+            {
+                printf("Error: Failed to read debug array! %d\n", err);
+                exit(1);
+            }
+            clFinish(commands);
 
-		//printf("1====================%f==================\n", debug_log[0]);
+            //printf("1====================%f==================\n", debug_log[0]);
 
 #endif
 
-        for(j=0; j<prop_group; ++j)
+            for(j=0; j<prop_group; ++j)
+            {
+                if(results[j].m_order <50*fc)
+                    continue;
+                float rt = results[j].m_result;
+                float* pd = prop_data +j*prop_count_an;
+                int rt_idx;
+                const int rt_size = sizeof(OutputMsg)+sizeof(float)*prop_count;
+                OutputMsg* hlast = (OutputMsg*)((char*)highest_data+rt_size*(highest-1));
+                if(hlast->m_result < rt)
+                {
+                    for(rt_idx =0; rt_idx < highest; ++rt_idx)
+                    {
+                        OutputMsg* hcurrent = (OutputMsg*)((char*)highest_data+rt_size*rt_idx);
+                        float* hcdata = (float*)(hcurrent+1);
+                        OutputMsg* hnext = (OutputMsg*)((char*)highest_data+rt_size*(rt_idx+1));
+                        if (hcurrent->m_result < rt)
+                        {
+                            if(rt_idx < highest-1)
+                                memcpy(hnext, hcurrent, rt_size*(highest - rt_idx -1) );
+                            //hcurrent[0] = rt;
+                            memcpy(hcurrent, &results[j], sizeof(OutputMsg));
+                            memcpy(hcdata, pd, sizeof(float)*prop_count);
+                            break;
+                        }
+                    }
+                }
+                hlast = (OutputMsg*)((char*)lowest_data+rt_size*(lowest-1));
+                if(hlast->m_result > rt)
+                {
+                    for(rt_idx =0; rt_idx < lowest; ++rt_idx)
+                    {
+                        OutputMsg* hcurrent = (OutputMsg*)((char*)lowest_data+rt_size*rt_idx);
+                        float* hcdata = (float*)(hcurrent+1);
+                        OutputMsg* hnext = (OutputMsg*)((char*)lowest_data+rt_size*(rt_idx+1));
+                        if (hcurrent->m_result > rt)
+                        {
+                            if(rt_idx < lowest-1)
+                                memcpy(hnext, hcurrent, rt_size*(lowest - rt_idx -1) );
+                            memcpy(hcurrent, &results[j], sizeof(OutputMsg));
+                            memcpy(hcdata, pd, sizeof(float)*prop_count);
+                            break;
+                        }
+                    }
+                }
+
+            }
+
+
+        } /* for-i: prop_group */
+
+        get_tick_count(&tend);
+        lmice_critical_print("Calc time %lld\n", tend-tbegin);
+        OutputMsg* om = (OutputMsg*)((char*)highest_data);
+        printf("best %d  %f\n", om->m_order, om->m_result);
         {
-            if(results[j].m_order <50*fc)
-                continue;
-            float rt = results[j].m_result;
-            float* pd = prop_data +j*prop_count_an;
+            int pc_idx;
+            for(pc_idx = 0; pc_idx < prop_count; ++pc_idx)
+            {
+                printf("a[%d] = %f\t", pc_idx, highest_data[2+pc_idx]);
+            }
+            printf("\n");
+        }
+        struct rt_dummy
+        {
+            OutputMsg msg;
+            float data[1];
+        };
+        const int rt_size = sizeof(OutputMsg)+sizeof(float)*prop_count;
+        {
+            int i;
             int rt_idx;
-            const int rt_size = sizeof(OutputMsg)+sizeof(float)*prop_count;
-            OutputMsg* hlast = (OutputMsg*)((char*)highest_data+rt_size*(highest-1));
-            if(hlast->m_result < rt)
-            {
-                for(rt_idx =0; rt_idx < highest; ++rt_idx)
-                {
-                    OutputMsg* hcurrent = (OutputMsg*)((char*)highest_data+rt_size*rt_idx);
-                    float* hcdata = (float*)(hcurrent+1);
-                    OutputMsg* hnext = (OutputMsg*)((char*)highest_data+rt_size*(rt_idx+1));
-                    if (hcurrent->m_result < rt)
-                    {
-                        if(rt_idx < highest-1)
-                            memcpy(hnext, hcurrent, rt_size*(highest - rt_idx -1) );
-                        //hcurrent[0] = rt;
-                        memcpy(hcurrent, &results[j], sizeof(OutputMsg));
-                        memcpy(hcdata, pd, sizeof(float)*prop_count);
-                        break;
-                    }
-                }
-            }
-            hlast = (OutputMsg*)((char*)lowest_data+rt_size*(lowest-1));
-            if(hlast->m_result > rt)
-            {
-                for(rt_idx =0; rt_idx < lowest; ++rt_idx)
-                {
-                    OutputMsg* hcurrent = (OutputMsg*)((char*)lowest_data+rt_size*rt_idx);
-                    float* hcdata = (float*)(hcurrent+1);
-                    OutputMsg* hnext = (OutputMsg*)((char*)lowest_data+rt_size*(rt_idx+1));
-                    if (hcurrent->m_result > rt)
-                    {
-                        if(rt_idx < lowest-1)
-                            memcpy(hnext, hcurrent, rt_size*(lowest - rt_idx -1) );
-                        memcpy(hcurrent, &results[j], sizeof(OutputMsg));
-                        memcpy(hcdata, pd, sizeof(float)*prop_count);
-                        break;
-                    }
-                }
-            }
-
-        }
-
-
-    } /* for-i: prop_group */
-    int64_t tend;
-    get_tick_count(&tend);
-    lmice_critical_print("Calc time %lld\n", tend-tbegin);
-    OutputMsg* om = (OutputMsg*)((char*)highest_data);
-    printf("best %d  %f\n", om->m_order, om->m_result);
-    {
-        int pc_idx;
-        for(pc_idx = 0; pc_idx < prop_count; ++pc_idx)
-        {
-            printf("a[%d] = %f\t", pc_idx, highest_data[2+pc_idx]);
-        }
-        printf("\n");
-    }
-    struct rt_dummy
-    {
-        OutputMsg msg;
-        float data[1];
-    };
-    const int rt_size = sizeof(OutputMsg)+sizeof(float)*prop_count;
-    {
-        int i;
-        int rt_idx;
-        FILE* fp;
-        if(bsfs_mode==1)
-            fp = fopen("lowest_sfs.csv", "w");
-        else
-            fp = fopen("lowest.csv", "w");
-        fprintf(fp, "\"order\",\"result\"");
-        for(i=0; i<prop_count; ++i)
-            fprintf(fp, ",\"a[%d]\"", i);
-        fprintf(fp, "\n");
-        for(rt_idx =0; rt_idx < lowest; ++rt_idx)
-        {
-            struct rt_dummy* hd = (struct rt_dummy*)((char*)lowest_data+rt_size*rt_idx);
-
-            fprintf(fp, "%d,%f", hd->msg.m_order, hd->msg.m_result);
+            FILE* fp;
+            if(bsfs_mode==1)
+                fp = fopen("lowest_sfs.csv", "w");
+            else
+                fp = fopen("lowest.csv", "w");
+            fprintf(fp, "\"order\",\"result\"");
             for(i=0; i<prop_count; ++i)
-                fprintf(fp, ",%f", hd->data[i]);
+                fprintf(fp, ",\"a[%d]\"", i);
             fprintf(fp, "\n");
+            for(rt_idx =0; rt_idx < lowest; ++rt_idx)
+            {
+                struct rt_dummy* hd = (struct rt_dummy*)((char*)lowest_data+rt_size*rt_idx);
+
+                fprintf(fp, "%d,%f", hd->msg.m_order, hd->msg.m_result);
+                for(i=0; i<prop_count; ++i)
+                    fprintf(fp, ",%f", hd->data[i]);
+                fprintf(fp, "\n");
+            }
+            fclose(fp);
         }
-        fclose(fp);
-    }
-    {
-        int i;
-        int rt_idx;
-        FILE* fp;
-        if(bsfs_mode==1)
-            fp = fopen("highest_sfs.csv", "w");
-        else
-            fp = fopen("highest.csv", "w");
-        fprintf(fp, "\"order\",\"result\"");
-        for(i=0; i<prop_count; ++i)
-            fprintf(fp, ",\"a[%d]\"", i);
-        fprintf(fp, "\n");
-        for(rt_idx =0; rt_idx < highest; ++rt_idx)
         {
-            struct rt_dummy* hd = (struct rt_dummy*)((char*)highest_data+rt_size*rt_idx);
-            fprintf(fp, "%d,%f", hd->msg.m_order, hd->msg.m_result);
+            int i;
+            int rt_idx;
+            FILE* fp;
+            if(bsfs_mode==1)
+                fp = fopen("highest_sfs.csv", "w");
+            else
+                fp = fopen("highest.csv", "w");
+            fprintf(fp, "\"order\",\"result\"");
             for(i=0; i<prop_count; ++i)
-                fprintf(fp, ",%f", hd->data[i]);
+                fprintf(fp, ",\"a[%d]\"", i);
             fprintf(fp, "\n");
+            for(rt_idx =0; rt_idx < highest; ++rt_idx)
+            {
+                struct rt_dummy* hd = (struct rt_dummy*)((char*)highest_data+rt_size*rt_idx);
+                fprintf(fp, "%d,%f", hd->msg.m_order, hd->msg.m_result);
+                for(i=0; i<prop_count; ++i)
+                    fprintf(fp, ",%f", hd->data[i]);
+                fprintf(fp, "\n");
+            }
+            fclose(fp);
         }
-        fclose(fp);
-    }
+
+    } /* for-bsfs_iter: bsfs_loop */
+
+    get_tick_count(&sfs_tick_end);
+    lmice_critical_print("SFS calc time %lld\n", sfs_tick_end-sfs_tick_begin);
 
     /// Print a brief summary detailing the results
-    printf("Computed!\n");
+    //printf("Computed!\n");
 
     /// Shutdown and cleanup
     munmap(host_bulk, hb_size);
